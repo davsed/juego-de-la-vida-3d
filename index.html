@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#7ec0ee">
+  <title>Juego de la vida 3D</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <!-- Indicadores durante el juego -->
+  <div id="hud" class="hidden">
+    <div class="stats"><span id="gen">Gen 0</span> · <span id="count">0 cubos</span></div>
+    <div class="toolbar">
+      <button id="btn-pause" title="Pausa (P)">⏸</button>
+      <button id="btn-step" title="Una generación (N)">⏭</button>
+      <button id="btn-speed" title="Velocidad (V)">1×</button>
+      <button id="btn-reset" title="Reiniciar (R)">↺</button>
+      <button id="btn-menu" title="Instrucciones (M)">☰</button>
+    </div>
+  </div>
+  <div id="crosshair" class="hidden">+</div>
+  <div id="paused-tag" class="hidden">EN PAUSA</div>
+
+  <!-- Controles táctiles -->
+  <div id="touch" class="hidden">
+    <div id="joystick"><div id="stick"></div></div>
+    <div id="updown">
+      <button id="btn-up">▲</button>
+      <button id="btn-down">▼</button>
+    </div>
+  </div>
+
+  <!-- Pantalla de inicio -->
+  <div id="menu">
+    <div class="panel">
+      <h1>Juego de la vida <span>3D</span></h1>
+      <p class="lead">Cada cubo es una célula. Mira a sus <b>26 vecinas</b> (las que la rodean en el espacio) y, según cuántas estén vivas, vive o muere en la siguiente generación.</p>
+
+      <table>
+        <tr><th colspan="2">Reglas</th></tr>
+        <tr><td>Sobrevive</td><td>si tiene <b id="r-s">5, 6 o 7</b> vecinas vivas</td></tr>
+        <tr><td>Nace</td><td>donde hay exactamente <b id="r-b">5</b> vecinas vivas</td></tr>
+        <tr><td>Muere</td><td>en cualquier otro caso (soledad o agobio)</td></tr>
+        <tr><td>Zona</td><td>las células nacen dentro del recuadro de líneas blancas</td></tr>
+      </table>
+
+      <label class="rule-pick">Reglas:
+        <select id="rule">
+          <option value="hervidero">Hervidero (5-7 / 5) · recomendada</option>
+          <option value="bays">Clásica de Bays (4-5 / 5) · se calma pronto</option>
+        </select>
+      </label>
+
+      <table>
+        <tr><th colspan="2">Controles</th></tr>
+        <tr class="pc"><td>Ordenador</td><td><b>WASD</b> andar · <b>ratón</b> mirar (haz clic) · <b>Espacio</b>/<b>Mayús</b> subir/bajar · <b>P</b> pausa · <b>R</b> reiniciar</td></tr>
+        <tr class="mobile"><td>Móvil</td><td><b>joystick</b> (abajo a la izquierda) andar · <b>arrastra</b> el dedo para mirar · <b>▲ ▼</b> subir/bajar</td></tr>
+        <tr><td>Botones</td><td>⏸ pausa · ⏭ un paso · 1× velocidad · ↺ reiniciar · ☰ este menú</td></tr>
+      </table>
+
+      <button id="play">▶ Play</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
