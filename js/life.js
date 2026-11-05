@@ -27,20 +27,33 @@ for (let dx = -1; dx <= 1; dx++)
 export const NEIGHBOR_COUNT = NEIGHBOR_DELTAS.length; // 26
 
 // Una regla: listas de recuentos de vecinas para sobrevivir y para nacer.
-export function makeRule(survive, born) {
+// type 'total': cuenta las 26 vecinas.
+// type 'planes': juego clásico 2D en cada uno de los 3 planos que pasan por la celda
+//   (8 vecinas por plano). Una celda nace si la regla se cumple en al menos `bNeed` planos
+//   y sobrevive si se cumple en al menos `sNeed` planos (de 1 a 3).
+export function makeRule(survive, born, { type = 'total', bNeed = 1, sNeed = 3 } = {}) {
   const s = new Array(27).fill(false);
   const b = new Array(27).fill(false);
   survive.forEach((n) => (s[n] = true));
   born.forEach((n) => (b[n] = true));
-  return { survive: [...survive], born: [...born], s, b };
+  return { type, bNeed, sNeed, survive: [...survive].sort((a, c) => a - c), born: [...born].sort((a, c) => a - c), s, b };
 }
 
-export const RULES = {
-  // Recomendada: crece desde la semilla, llena la zona de vida y se queda «hirviendo».
-  hervidero: makeRule([5, 6, 7], [5]),
-  // Clásica de Carter Bays (4555): elegante pero suele apagarse en pocas generaciones.
-  bays: makeRule([4, 5], [5]),
+// Reglas con nombre. `desc` se muestra en el menú.
+export const PRESETS = {
+  hervidero: { name: 'Hervidero', rule: makeRule([5, 6, 7], [5]),
+    desc: 'Crece desde la semilla, llena el recinto y se queda burbujeando sin parar.' },
+  planos: { name: 'Clásico en 3 planos', rule: makeRule([2, 3], [3], { type: 'planes', bNeed: 1, sNeed: 3 }),
+    desc: 'El juego de la vida de siempre (sobrevive con 2 o 3, nace con 3) jugado a la vez en los 3 planos que cruzan cada cubo: el horizontal y los dos verticales. Nace si lo consigue en algún plano; sobrevive solo si lo consigue en los tres.' },
+  bays: { name: 'Clásica de Bays', rule: makeRule([4, 5], [5]),
+    desc: 'La versión 3D más conocida (Carter Bays, 1987). Muy exigente: casi siempre se apaga pronto. Ideal para el reto de aguantar el máximo de generaciones.' },
+  cristal: { name: 'Cristal', rule: makeRule([0, 1, 2, 3, 4, 5, 6], [1, 3]),
+    desc: 'Desde un solo cubo crece un cristal geométrico que se expande en todas direcciones. Empieza con «un solo cubo».' },
+  piroclasto: { name: 'Lava', rule: makeRule([4, 5, 6, 7], [6, 7, 8]),
+    desc: 'La semilla se hincha y se derrama por el recinto en ebullición, como lava.' },
 };
+
+export const RULES = Object.fromEntries(Object.entries(PRESETS).map(([k, v]) => [k, v.rule]));
 
 // Comprueba si una clave cae dentro de unos límites {minX, maxX, minY, maxY, minZ, maxZ}.
 export function inBounds(k, b) {
@@ -56,26 +69,54 @@ export function countNeighbors(alive, x, y, z) {
   return n;
 }
 
+// Pesos para contar vecinas por planos: XY (dz=0) en unidades, XZ (dy=0) en 16s, YZ (dx=0) en 256s.
+const PLANE_DELTAS = [];
+for (let dx = -1; dx <= 1; dx++)
+  for (let dy = -1; dy <= 1; dy++)
+    for (let dz = -1; dz <= 1; dz++) {
+      if (!(dx || dy || dz)) continue;
+      const w = (dz === 0 ? 1 : 0) + (dy === 0 ? 16 : 0) + (dx === 0 ? 256 : 0);
+      if (w) PLANE_DELTAS.push([dx * SIZE2 + dy * SIZE + dz, w]);
+    }
+
+function planeVerdict(rule, alive, packed) {
+  const table = alive ? rule.s : rule.b;
+  const v = (table[packed & 15] ? 1 : 0) + (table[(packed >> 4) & 15] ? 1 : 0) + (table[(packed >> 8) & 15] ? 1 : 0);
+  return v >= (alive ? rule.sNeed : rule.bNeed);
+}
+
+// Firma corta de una regla (para guardar récords).
+export function ruleSignature(rule) {
+  const base = `${rule.survive.join(',')}/${rule.born.join(',')}`;
+  return rule.type === 'planes' ? `P${rule.bNeed}${rule.sNeed}:${base}` : base;
+}
+
+// Huella de un estado: sirve para detectar si el mundo se ha quedado quieto o repite un ciclo.
+export function stateHash(alive) {
+  let a = 0, b = 0;
+  for (const k of alive) { a += k % 2147483629; b = (b ^ (k % 4294967291)) | 0; }
+  return `${alive.size}:${a}:${b}`;
+}
+
 // Calcula la siguiente generación. `alive` es un Set de claves.
 // `bounds` (opcional) limita dónde pueden nacer celdas nuevas.
 export function step(alive, rule, bounds = null) {
+  const planes = rule.type === 'planes';
+  const deltas = planes ? PLANE_DELTAS : NEIGHBOR_DELTAS.map((d) => [d, 1]);
   const counts = new Map();
   for (const k of alive) {
-    for (const d of NEIGHBOR_DELTAS) {
+    if (!counts.has(k)) counts.set(k, 0); // así también se evalúan las celdas sin vecinas
+    for (const [d, w] of deltas) {
       const nk = k + d;
-      counts.set(nk, (counts.get(nk) || 0) + 1);
+      counts.set(nk, (counts.get(nk) || 0) + w);
     }
   }
   const next = new Set();
   for (const [k, n] of counts) {
-    if (alive.has(k)) {
-      if (rule.s[n]) next.add(k);
-    } else if (rule.b[n] && (!bounds || inBounds(k, bounds))) {
-      next.add(k);
-    }
+    const isAlive = alive.has(k);
+    const ok = planes ? planeVerdict(rule, isAlive, n) : isAlive ? rule.s[n] : rule.b[n];
+    if (ok && (isAlive || !bounds || inBounds(k, bounds))) next.add(k);
   }
-  // Las celdas vivas sin ninguna vecina no aparecen en `counts`: sobreviven solo si la regla admite 0.
-  if (rule.s[0]) for (const k of alive) if (!counts.has(k)) next.add(k);
   return next;
 }
 
