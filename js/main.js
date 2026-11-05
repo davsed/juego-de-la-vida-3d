@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PRESETS, makeRule, randomSoup, key, ruleSignature } from './life.js?v=3';
+import { PRESETS, PATTERNS, randomSoup, key, ruleSignature } from './life.js?v=4';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -13,8 +13,6 @@ const ZONES = {
 };
 const SPEEDS = [{ label: '1×', ms: 600 }, { label: '2×', ms: 300 }, { label: '4×', ms: 120 }, { label: '8×', ms: 30 }];
 const MAX_INSTANCES = 260000;
-const SKY_TOP = new THREE.Color('#4f8fe0');
-const SKY_HORIZON = new THREE.Color('#bcdcf5');
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem('jv3d-' + k); return v ? JSON.parse(v) : d; } catch (_) { return d; } },
@@ -22,37 +20,80 @@ const store = {
 };
 const plainRule = (r) => ({ type: r.type, survive: [...r.survive], born: [...r.born], bNeed: r.bNeed, sNeed: r.sNeed });
 const settings = Object.assign(
-  { preset: 'hervidero', rule: plainRule(PRESETS.hervidero.rule), start: 'random', zone: 'm', color: 'fate' },
+  { preset: 'hervidero', rule: plainRule(PRESETS.hervidero.rule), start: 'random', zone: 'm', color: 'fate', sky: 'day' },
   store.get('settings', {})
 );
 const saveSettings = () => store.set('settings', settings);
-const zone = () => ZONES[settings.zone] || ZONES.m;
+// Durante un reto se usan sus propias reglas y recinto sin tocar los ajustes de la partida libre.
+let active = { rule: settings.rule, zone: settings.zone, preset: settings.preset };
+const zone = () => ZONES[active.zone] || ZONES.m;
 const bounds = () => { const z = zone(); return { minX: -z.half, maxX: z.half, minY: 0, maxY: z.h - 1, minZ: -z.half, maxZ: z.half }; };
+
+// ---------- Retos ----------
+const GOALS = [
+  { id: 'g1', name: 'Primer aliento', preset: 'bays', zone: 's', max: 12,
+    text: 'Con las exigentes reglas de Bays y 12 cubos como mucho, consigue que algo siga vivo en la generación 20.',
+    live: (s) => s.gen >= 20 && s.n > 0 },
+  { id: 'g2', name: 'El viajero', preset: 'bays', zone: 'm', max: 10,
+    text: 'Con 10 cubos o menos, que algo siga vivo en la generación 60. Pista: 🧩 Figuras → Planeador, ponlo cerca del centro y síguelo (si choca con la pared, muere).',
+    live: (s) => s.gen >= 60 && s.n > 0 },
+  { id: 'g3', name: 'Escultura', preset: 'planos', zone: 's', max: 60,
+    text: 'Clásico en 3 planos: crea una figura de al menos 20 cubos que se quede totalmente quieta.',
+    end: (r) => r.kind === 'cycle' && r.period === 1 && r.n >= 20 },
+  { id: 'g4', name: 'Latido', preset: 'bays', zone: 's', max: 20,
+    text: 'Reglas de Bays: crea algo que se repita en bucle (un ciclo de 2 o más pasos). Pista: grupos pequeños de 2 capas.',
+    end: (r) => r.kind === 'cycle' && r.period >= 2 },
+  { id: 'g5', name: 'Rascacielos', preset: 'piroclasto', zone: 's', max: 10,
+    text: 'Lava: con 10 cubos o menos, haz que algún cubo toque el techo del recinto.',
+    live: (s, g) => g.maxY >= zone().h - 1 },
+  { id: 'g6', name: 'Superviviente', preset: 'planos', zone: 's', max: 15,
+    text: 'Clásico en 3 planos: con 15 cubos o menos, sigue vivo en la generación 100.',
+    live: (s) => s.gen >= 100 && s.n > 0 },
+  { id: 'g7', name: 'Big Bang', preset: 'hervidero', zone: 's', max: 15,
+    text: 'Hervidero: con 15 cubos o menos, llega a 500 cubos. ¡Difícil! Busca formas compactas.',
+    live: (s) => s.n >= 500 },
+];
+const doneGoals = () => store.get('goals', {});
 
 // ---------- Escena ----------
 const canvas = $('scene');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.localClippingEnabled = true;
 const scene = new THREE.Scene();
-scene.background = SKY_HORIZON;
-scene.fog = new THREE.Fog(SKY_HORIZON, 40, 200);
+const fogColor = new THREE.Color('#bcdcf5');
+scene.background = fogColor;
+scene.fog = new THREE.Fog(fogColor, 40, 200);
 const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 900);
 camera.rotation.order = 'YXZ';
-scene.add(new THREE.HemisphereLight('#ffffff', '#6a7f5a', 0.9));
+const hemi = new THREE.HemisphereLight('#ffffff', '#6a7f5a', 0.9);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight('#fff6e0', 1.4);
-sun.position.set(40, 80, 25);
 scene.add(sun);
 
+const skyUniforms = { top: { value: new THREE.Color('#4f8fe0') }, horizon: { value: new THREE.Color('#bcdcf5') } };
 const sky = new THREE.Mesh(
   new THREE.SphereGeometry(700, 32, 16),
   new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: { top: { value: SKY_TOP }, horizon: { value: SKY_HORIZON } },
+    side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyUniforms,
     vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: 'uniform vec3 top; uniform vec3 horizon; varying vec3 vP; void main(){ float h = clamp(normalize(vP).y * 2.2, 0.0, 1.0); gl_FragColor = vec4(mix(horizon, top, h), 1.0); }',
   })
 );
 scene.add(sky);
+
+// Estrellas para la noche.
+const starPos = [];
+for (let i = 0; i < 1600; i++) {
+  const u = Math.random() * Math.PI * 2, v = Math.random() * 0.95 + 0.03;
+  const r = 650, y = v * r, rr = Math.sqrt(r * r - y * y);
+  starPos.push(Math.cos(u) * rr, y, Math.sin(u) * rr);
+}
+const starGeo = new THREE.BufferGeometry();
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 2, sizeAttenuation: false, fog: false }));
+stars.visible = false;
+scene.add(stars);
 
 function pixelTexture(size, paint) {
   const c = document.createElement('canvas');
@@ -65,7 +106,7 @@ function pixelTexture(size, paint) {
   return t;
 }
 
-// Suelo infinito translúcido: un plano grande que acompaña al jugador.
+// Suelo infinito translúcido.
 const floorTex = pixelTexture(16, (g, s) => {
   for (let x = 0; x < s; x++)
     for (let y = 0; y < s; y++) {
@@ -81,15 +122,12 @@ floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
 const FLOOR_SIZE = 1000;
 floorTex.repeat.set(FLOOR_SIZE, FLOOR_SIZE);
 floorTex.offset.set(0.5, 0.5);
-const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE),
-  new THREE.MeshLambertMaterial({ map: floorTex, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide })
-);
+const floorMat = new THREE.MeshLambertMaterial({ map: floorTex, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide });
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE), floorMat);
 floor.rotation.x = -Math.PI / 2;
 floor.renderOrder = -1;
 scene.add(floor);
 
-// Recuadro de la zona de vida.
 let zoneBox = null;
 function buildZoneBox() {
   if (zoneBox) { scene.remove(zoneBox); zoneBox.geometry.dispose(); }
@@ -106,8 +144,8 @@ function buildZoneBox() {
 
 // Nubes de bloques.
 const CLOUD_N = 70;
-const clouds = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
-  new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.85 }), CLOUD_N);
+const cloudMat = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.85 });
+const clouds = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), cloudMat, CLOUD_N);
 const cloudData = Array.from({ length: CLOUD_N }, () => ({
   x: (Math.random() - 0.5) * 500, z: (Math.random() - 0.5) * 500, w: 8 + Math.floor(Math.random() * 20), d: 6 + Math.floor(Math.random() * 14),
 }));
@@ -125,7 +163,7 @@ function updateClouds(dt) {
   clouds.instanceMatrix.needsUpdate = true;
 }
 
-// Cubos vivos: una sola malla instanciada.
+// Cubos vivos: una malla instanciada con animación de nacer (crecen) y morir (encogen).
 const cubeTex = pixelTexture(16, (g, s) => {
   for (let x = 0; x < s; x++)
     for (let y = 0; y < s; y++) {
@@ -137,13 +175,28 @@ const cubeTex = pixelTexture(16, (g, s) => {
   g.fillRect(0, 0, s, 1); g.fillRect(0, s - 1, s, 1); g.fillRect(0, 0, 1, s); g.fillRect(s - 1, 0, 1, s);
 });
 const cubeGeo = new THREE.BoxGeometry(1, 1, 1);
+const anim = { uProg: { value: 1 }, uGlow: { value: 0 } };
 const cubeMat = new THREE.MeshLambertMaterial({ map: cubeTex });
+cubeMat.onBeforeCompile = (sh) => {
+  sh.uniforms.uProg = anim.uProg;
+  sh.uniforms.uGlow = anim.uGlow;
+  sh.vertexShader = 'attribute float aAnim;\nuniform float uProg;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+    float bornF = mod(aAnim, 2.0);
+    float dieF = step(1.5, aAnim);
+    float sc = mix(1.0, 0.25 + 0.75 * smoothstep(0.0, 0.6, uProg), bornF);
+    sc *= mix(1.0, 1.0 - 0.6 * smoothstep(0.55, 1.0, uProg), dieF);
+    transformed *= sc;`);
+  sh.fragmentShader = 'uniform float uGlow;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>',
+    '#include <emissivemap_fragment>\n  totalEmissiveRadiance += diffuseColor.rgb * uGlow;');
+};
 let cubes = null;
 function buildCubes() {
   const z = zone();
   const cap = Math.min(MAX_INSTANCES, (z.half * 2 + 1) ** 2 * z.h);
   if (cubes && cubes.userData.cap === cap) return;
   if (cubes) { scene.remove(cubes); cubes.dispose(); }
+  cubeGeo.setAttribute('aAnim', new THREE.InstancedBufferAttribute(new Float32Array(cap), 1));
+  cubeGeo.attributes.aAnim.setUsage(THREE.DynamicDrawUsage);
   cubes = new THREE.InstancedMesh(cubeGeo, cubeMat, cap);
   cubes.userData.cap = cap;
   cubes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -160,6 +213,39 @@ const ghost = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeomet
 ghost.renderOrder = 10;
 ghost.visible = false;
 scene.add(ghost);
+
+// Corte para ver el interior.
+const cutPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
+let cutOn = false;
+function setCut(v) {
+  cutOn = v;
+  cubeMat.clippingPlanes = v ? [cutPlane] : null;
+  cubeMat.needsUpdate = true;
+  setBtn('btn-cut', '✂️', v ? 'Corte sí' : 'Corte no', v);
+}
+
+// ---------- Ambientes ----------
+const SKIES = {
+  day: { icon: '☀️', label: 'Día', top: '#4f8fe0', horizon: '#bcdcf5', hemi: 0.9, hemiColor: '#ffffff', sun: 1.4, sunColor: '#fff6e0', sunPos: [40, 80, 25], glow: 0, stars: false, cloud: 0.85 },
+  dusk: { icon: '🌇', label: 'Atardecer', top: '#2b2d6e', horizon: '#f39a5b', hemi: 0.95, hemiColor: '#ffe2c8', sun: 1.0, sunColor: '#ff9a50', sunPos: [90, 18, -40], glow: 0.12, stars: false, cloud: 0.6 },
+  night: { icon: '🌙', label: 'Noche', top: '#03050f', horizon: '#14203f', hemi: 0.2, hemiColor: '#8fa6ff', sun: 0.3, sunColor: '#9fb4ff', sunPos: [-30, 60, 40], glow: 0.85, stars: true, cloud: 0.12 },
+};
+const SKY_ORDER = ['day', 'dusk', 'night'];
+function applySky() {
+  const s = SKIES[settings.sky] || SKIES.day;
+  skyUniforms.top.value.set(s.top);
+  skyUniforms.horizon.value.set(s.horizon);
+  fogColor.set(s.horizon);
+  scene.fog.color.set(s.horizon);
+  hemi.intensity = s.hemi; hemi.color.set(s.hemiColor);
+  sun.intensity = s.sun; sun.color.set(s.sunColor); sun.position.set(...s.sunPos);
+  anim.uGlow.value = s.glow;
+  stars.visible = s.stars;
+  cloudMat.opacity = s.cloud;
+  floorMat.opacity = settings.sky === 'night' ? 0.35 : 0.5;
+  setBtn('btn-sky', s.icon, s.label);
+  setSeg('sky-mode', settings.sky);
+}
 
 // ---------- Colores con significado ----------
 const C = (h) => new THREE.Color(h);
@@ -180,52 +266,67 @@ const MENU_LEGENDS = {
   nbr: 'Cuántas vecinas vivas tiene cada célula: azul pocas, rojo muchas (agobio).',
   height: 'Color según la altura, como un mapa de relieve: rojo junto al suelo, violeta arriba.',
 };
-function colorFor(i, snap) {
+function colorFor(i, s) {
   switch (settings.color) {
-    case 'age': return AGES[ageIdx(snap.ages[i])];
-    case 'nbr': return tmpC.setHSL((1 - Math.min(snap.nbr[i], 14) / 14) * 0.62, 0.75, 0.52);
-    case 'height': return tmpC.setHSL(Math.min(snap.coords[i * 3 + 1] / (zone().h - 1), 1) * 0.8, 0.72, 0.56);
-    default: return FATE[snap.fate[i]];
+    case 'age': return AGES[ageIdx(s.ages[i])];
+    case 'nbr': return tmpC.setHSL((1 - Math.min(s.nbr[i], 14) / 14) * 0.62, 0.75, 0.52);
+    case 'height': return tmpC.setHSL(Math.min(s.coords[i * 3 + 1] / (zone().h - 1), 1) * 0.8, 0.72, 0.56);
+    default: return FATE[s.fate[i]];
   }
 }
 
 // ---------- Simulación en segundo plano ----------
-const worker = new Worker(new URL('./worker.js?v=3', import.meta.url), { type: 'module' });
+const worker = new Worker(new URL('./worker.js?v=4', import.meta.url), { type: 'module' });
 let snap = null;
 let waiting = false;
-let aliveKeys = null; // copia de las celdas vivas para apuntar al dibujar (se crea solo cuando hace falta)
+let snapTime = 0;
+let aliveKeys = null;
+const mass = { center: new THREE.Vector3(0, 8, 0), radius: 10 };
 
 function send(msg) {
   waiting = true;
-  worker.postMessage(Object.assign({ rule: settings.rule, bounds: bounds(), wantNeighbors: settings.color === 'nbr' }, msg));
+  worker.postMessage(Object.assign({ rule: active.rule, bounds: bounds(), wantNeighbors: settings.color === 'nbr' }, msg));
 }
 
 worker.onmessage = (e) => {
   const m = e.data;
   waiting = false;
   snap = m;
+  snapTime = performance.now();
   aliveKeys = null;
   drawSnapshot();
-  if (m.reason === 'set') game.history = [{ hash: m.hash, gen: 0 }];
-  if (m.reason === 'step') checkEnd();
+  if (m.reason === 'set') { game.history = [{ hash: m.hash, gen: 0 }]; game.pop = [m.n]; }
+  if (m.reason === 'step') { game.pop.push(m.n); if (game.pop.length > 240) game.pop.shift(); beep(m.n); checkEnd(); }
+  drawChart();
 };
 
 function drawSnapshot() {
   if (!snap) return;
-  const arr = cubes.instanceMatrix.array, col = cubes.instanceColor.array;
+  const arr = cubes.instanceMatrix.array, col = cubes.instanceColor.array, an = cubeGeo.attributes.aAnim.array;
   const n = Math.min(snap.n, cubes.userData.cap);
+  let sx = 0, sy = 0, sz = 0, maxY = 0, minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
   for (let i = 0; i < n; i++) {
-    const o = i * 16;
+    const o = i * 16, x = snap.coords[i * 3], y = snap.coords[i * 3 + 1], z = snap.coords[i * 3 + 2];
     arr[o] = 1; arr[o + 1] = 0; arr[o + 2] = 0; arr[o + 3] = 0;
     arr[o + 4] = 0; arr[o + 5] = 1; arr[o + 6] = 0; arr[o + 7] = 0;
     arr[o + 8] = 0; arr[o + 9] = 0; arr[o + 10] = 1; arr[o + 11] = 0;
-    arr[o + 12] = snap.coords[i * 3]; arr[o + 13] = snap.coords[i * 3 + 1] + 0.5; arr[o + 14] = snap.coords[i * 3 + 2]; arr[o + 15] = 1;
+    arr[o + 12] = x; arr[o + 13] = y + 0.5; arr[o + 14] = z; arr[o + 15] = 1;
     const c = colorFor(i, snap);
     col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+    an[i] = (snap.ages[i] <= 1 ? 1 : 0) + (snap.fate[i] ? 0 : 2);
+    sx += x; sy += y; sz += z;
+    if (y > maxY) maxY = y;
+    if (x < minX) minX = x; if (x > maxX) maxX = x; if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
   }
+  if (n) {
+    mass.center.set(sx / n, sy / n + 0.5, sz / n);
+    mass.radius = Math.max(4, (maxX - minX) / 2, (maxZ - minZ) / 2, maxY / 2);
+  }
+  game.maxY = Math.max(game.maxY || 0, maxY);
   cubes.count = n;
   cubes.instanceMatrix.needsUpdate = true;
   cubes.instanceColor.needsUpdate = true;
+  cubeGeo.attributes.aAnim.needsUpdate = true;
   if (game.active) {
     game.maxN = Math.max(game.maxN, snap.n);
     $('gen').textContent = `Generación ${snap.gen}`;
@@ -242,16 +343,60 @@ function getAliveKeys() {
   return aliveKeys;
 }
 
+// Gráfica de población.
+const chart = $('chart'), cctx = chart.getContext('2d');
+function drawChart() {
+  const p = game.pop || [];
+  cctx.clearRect(0, 0, chart.width, chart.height);
+  if (p.length < 2) return;
+  const max = Math.max(...p, 1);
+  cctx.strokeStyle = '#7fe05a';
+  cctx.lineWidth = 2;
+  cctx.beginPath();
+  p.forEach((v, i) => {
+    const x = (i / (p.length - 1)) * (chart.width - 4) + 2, y = chart.height - 3 - (v / max) * (chart.height - 8);
+    i ? cctx.lineTo(x, y) : cctx.moveTo(x, y);
+  });
+  cctx.stroke();
+}
+
+// Sonido opcional: un tono por generación, más agudo cuantos más cubos hay.
+let audio = null, soundOn = false;
+const SCALE = [0, 2, 4, 7, 9];
+function beep(n) {
+  if (!soundOn || !audio || !game.active) return;
+  if (game.speedIdx === 3 && snap.gen % 3) return;
+  const i = Math.floor(Math.log2(n + 1) * 1.6);
+  const f = 130.8 * Math.pow(2, Math.floor(i / 5) + SCALE[i % 5] / 12);
+  const t = audio.currentTime, o = audio.createOscillator(), g = audio.createGain();
+  o.type = 'triangle';
+  o.frequency.value = Math.min(f, 2000);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(n ? 0.06 : 0.02, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+  o.connect(g).connect(audio.destination);
+  o.start(t);
+  o.stop(t + 0.3);
+}
+function toggleSound() {
+  soundOn = !soundOn;
+  if (soundOn && !audio) { try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (_) { soundOn = false; } }
+  if (audio && audio.state === 'suspended') audio.resume();
+  setBtn('btn-sound', soundOn ? '🔊' : '🔇', 'Sonido', soundOn);
+}
+
 // ---------- Estado de la partida ----------
 const game = {
   active: false, phase: 'menu', paused: false, speedIdx: 0, timer: 0,
-  initial: [], maxN: 0, history: [], ended: false, tool: 'add',
+  initial: [], maxN: 0, maxY: 0, history: [], pop: [], ended: false, tool: 'add',
+  brush: 1, mirror: false, stamp: null, undo: [], goal: null, cam: 'fly',
 };
 
 function seedCells(mode) {
   const z = zone();
   if (mode === 'draw') return [];
   if (mode === 'one') return [key(0, 10, 0)];
+  if (mode === 'glider') return PATTERNS.planeador.cells.map(([x, y, zz]) => key(x - 1, y + 1, zz - 1));
   return [...randomSoup({ cx: 0, cy: Math.ceil(z.seed / 2) + 2, cz: 0, size: z.seed, density: 0.3 })];
 }
 
@@ -259,25 +404,38 @@ function setWorld(cells) {
   game.history = [];
   game.ended = false;
   game.maxN = cells.length;
+  game.maxY = 0;
   game.timer = 0;
+  game.undo = [];
   send({ type: 'set', cells, gen: 0 });
 }
 
-function startGame() {
+function startGame(goal = null) {
+  game.goal = goal;
+  if (goal) active = { rule: plainRule(PRESETS[goal.preset].rule), zone: goal.zone, preset: goal.preset };
+  else active = { rule: settings.rule, zone: settings.zone, preset: settings.preset };
   buildCubes();
   buildZoneBox();
   game.active = true;
   game.speedIdx = 0;
-  $('btn-speed').querySelector('span').textContent = SPEEDS[0].label;
-  game.initial = seedCells(settings.start);
+  setBtn('btn-speed', '⏩', SPEEDS[0].label);
+  const start = goal ? 'draw' : settings.start;
+  game.initial = seedCells(start);
   setWorld(game.initial);
   const z = zone();
-  if (settings.start === 'draw') placeCamera(0, 6, 14, -0.4);
-  else if (settings.start === 'one') placeCamera(0, 12, 22, -0.1);
+  setCam('fly', true);
+  if (start === 'draw') placeCamera(0, 6, 14, -0.4);
+  else if (start === 'one' || start === 'glider') placeCamera(0, 8, 16, -0.2);
   else placeCamera(0, z.seed / 2 + 4, z.seed + 22, -0.12);
+  $('goal').classList.toggle('hidden', !goal);
+  if (goal) $('goal').textContent = `🎯 ${goal.name}: ${goal.text}`;
   showGame();
-  if (settings.start === 'draw') enterEdit(true);
-  else { setPaused(false); setPhase('play'); hintOnce('move', isTouch ? 'Mueve el joystick para andar y arrastra el dedo para mirar' : 'Haz clic en la escena para mirar con el ratón · WASD para andar'); }
+  if (start === 'draw') enterEdit(true);
+  else {
+    setPaused(false);
+    setPhase('play');
+    hintOnce('move', isTouch ? 'Mueve el joystick para andar y arrastra el dedo para mirar' : 'Haz clic en la escena para mirar con el ratón · WASD para andar');
+  }
 }
 
 function restart() {
@@ -292,29 +450,35 @@ function setPhase(p) {
   game.phase = p;
   $('playbar').classList.toggle('hidden', p !== 'play');
   $('editbar').classList.toggle('hidden', p !== 'edit');
+  $('hud').classList.toggle('editing', p === 'edit');
   ghost.visible = false;
 }
 
+function setBtn(id, icon, label, on) {
+  const b = $(id);
+  if (!b) return;
+  b.querySelector('i').textContent = icon;
+  b.querySelector('span').textContent = label;
+  if (on !== undefined) b.classList.toggle('active', !!on);
+}
 function setPaused(v) {
   game.paused = v;
-  const b = $('btn-pause');
-  b.querySelector('i').textContent = v ? '▶' : '⏸';
-  b.querySelector('span').textContent = v ? 'Seguir' : 'Pausa';
+  setBtn('btn-pause', v ? '▶' : '⏸', v ? 'Seguir' : 'Pausa');
 }
-
 function cycleSpeed() {
   game.speedIdx = (game.speedIdx + 1) % SPEEDS.length;
-  $('btn-speed').querySelector('span').textContent = SPEEDS[game.speedIdx].label;
+  setBtn('btn-speed', '⏩', SPEEDS[game.speedIdx].label);
 }
-
 function stepOnce() {
   setPaused(true);
   if (!waiting) send({ type: 'step' });
 }
 
-// Fin de partida: todo muerto, quieto o repitiendo un ciclo.
+// Fin de partida: todo muerto, quieto o repitiendo un ciclo. Y comprobación de retos.
 function checkEnd() {
   if (!game.active || game.ended || game.phase !== 'play') return;
+  const g = game.goal;
+  if (g && g.live && g.live(snap, game)) return goalDone(g);
   let kind = null, from = snap.gen, period = 0;
   if (snap.n === 0) kind = 'extinct';
   else {
@@ -323,15 +487,20 @@ function checkEnd() {
     game.history.push({ hash: snap.hash, gen: snap.gen });
     if (game.history.length > 30) game.history.shift();
   }
-  if (kind) showResult(kind, from, period);
+  if (!kind) return;
+  if (g && g.end && g.end({ kind, period, n: snap.n })) return goalDone(g);
+  showResult(kind, from, period);
 }
 
-function showResult(kind, from, period) {
+function openResult() {
   game.ended = true;
   setPaused(true);
   releasePointer();
-  const score = from;
-  const sig = ruleSignature(settings.rule);
+  $('result').classList.remove('hidden');
+}
+
+function showResult(kind, from, period) {
+  const sig = ruleSignature(active.rule);
   const records = store.get('records', {});
   const old = records[sig] || 0;
   let title, text;
@@ -339,40 +508,75 @@ function showResult(kind, from, period) {
   else if (period === 1) { title = '🧊 Se ha quedado quieta'; text = `Desde la generación ${from} ya no cambia nada: ${snap.n.toLocaleString('es-ES')} cubos inmóviles.`; }
   else { title = '🔁 Se repite en bucle'; text = `Desde la generación ${from} repite un ciclo de ${period} pasos.`; }
   text += ` Población máxima: ${game.maxN.toLocaleString('es-ES')} cubos.`;
-  let rec = '';
-  if (score > old) { records[sig] = score; store.set('records', records); rec = old ? `🏆 ¡Nuevo récord con estas reglas! ${score} generaciones (antes ${old}).` : `🏆 Récord con estas reglas: ${score} generaciones. ¿Puedes superarlo?`; }
-  else rec = `Récord con estas reglas: ${old} generaciones. Tú: ${score}.`;
+  let rec;
+  if (from > old) { records[sig] = from; store.set('records', records); rec = old ? `🏆 ¡Nuevo récord con estas reglas! ${from} generaciones (antes ${old}).` : `🏆 Récord con estas reglas: ${from} generaciones. ¿Puedes superarlo?`; }
+  else rec = `Récord con estas reglas: ${old} generaciones. Tú: ${from}.`;
+  if (game.goal) rec = `🎯 Reto no superado todavía. ${game.goal.text}`;
   $('res-title').textContent = title;
   $('res-text').textContent = text;
   $('res-record').textContent = rec;
-  $('result').classList.remove('hidden');
+  $('res-next').classList.add('hidden');
+  openResult();
+}
+
+function goalDone(g) {
+  const done = doneGoals();
+  const first = !done[g.id];
+  done[g.id] = true;
+  store.set('goals', done);
+  $('res-title').textContent = '⭐ ¡Reto superado!';
+  $('res-text').textContent = `«${g.name}» conseguido en la generación ${snap.gen}, empezando con ${game.initial.length} cubos.`;
+  const total = Object.keys(done).length;
+  $('res-record').textContent = first ? `Llevas ${total} de ${GOALS.length} estrellas.` : `Ya lo tenías. Estrellas: ${total} de ${GOALS.length}.`;
+  const next = GOALS[GOALS.indexOf(g) + 1];
+  $('res-next').classList.toggle('hidden', !next);
+  $('res-next').onclick = () => { closeResult(); startGame(next); };
+  renderGoals();
+  openResult();
 }
 function closeResult() { $('result').classList.add('hidden'); }
 
 // ---------- Modo dibujo ----------
 function enterEdit(fresh) {
   closeResult();
+  // En un reto, dibujar siempre vuelve al inicio (para que el resultado cuente).
+  if (game.goal && snap && snap.gen > 0) setWorld(game.initial);
   setPaused(true);
   setPhase('edit');
   setTool('add');
-  if (fresh) toast(isTouch ? 'Toca el suelo o un cubo para poner un cubo encima. Cuando acabes, pulsa «¡Listo!»' : 'Clic izquierdo pone un cubo, clic derecho lo quita. Pulsa «¡Listo!» (o Intro) al acabar', 6000);
+  releasePointer();
+  if (fresh) toast(isTouch ? 'Toca el suelo o un cubo para poner un cubo encima. Cuando acabes, pulsa «¡Listo!»' : 'Clic izquierdo pone un cubo donde apunta el cursor, clic derecho lo quita. Arrastra para mirar. Pulsa «¡Listo!» (o Intro) al acabar', 6000);
   else if (snap && snap.gen > 0) toast(`Dibujando sobre la generación ${snap.gen}`);
-  else hintOnce('draw', isTouch ? 'Toca el suelo o un cubo para poner un cubo encima' : 'Clic izquierdo pone, clic derecho quita');
 }
 function exitEdit() {
+  const n = snap ? snap.n : 0;
+  if (game.goal && n > game.goal.max) { toast(`Este reto permite como máximo ${game.goal.max} cubos al empezar (tienes ${n}). Quita algunos.`, 4500); return; }
+  if (game.goal && n === 0) { toast('Dibuja algo primero'); return; }
   if (snap && snap.gen === 0) game.initial = [...getAliveKeys()];
   game.history = snap ? [{ hash: snap.hash, gen: snap.gen }] : [];
   game.ended = false;
+  game.stamp = null;
   setPhase('play');
   setPaused(false);
-  if (snap && snap.n === 0) toast('No hay cubos: pulsa ✏️ Dibujar para poner algunos');
+  if (n === 0) toast('No hay cubos: pulsa ✏️ Dibujar para poner algunos');
 }
 function setTool(t) {
   game.tool = t;
+  game.stamp = null;
   const b = $('btn-tool');
   b.className = t === 'add' ? 'tool-add' : 'tool-del';
-  b.querySelector('i').textContent = t === 'add' ? '➕' : '➖';
-  b.querySelector('span').textContent = t === 'add' ? 'Poner' : 'Quitar';
+  setBtn('btn-tool', t === 'add' ? '➕' : '➖', t === 'add' ? 'Poner' : 'Quitar');
+}
+const BRUSHES = [{ n: 1, icon: '▪', label: 'Pincel 1' }, { n: 3, icon: '◼', label: 'Pincel 9' }, { n: 27, icon: '🧱', label: 'Pincel 27' }];
+function cycleBrush() {
+  const i = (BRUSHES.findIndex((b) => b.n === game.brush) + 1) % BRUSHES.length;
+  game.brush = BRUSHES[i].n;
+  setBtn('btn-brush', BRUSHES[i].icon, BRUSHES[i].label, i > 0);
+}
+function toggleMirror() {
+  game.mirror = !game.mirror;
+  setBtn('btn-mirror', '🪞', game.mirror ? 'Espejo sí' : 'Espejo no', game.mirror);
+  if (game.mirror) toast('Espejo: lo que dibujes se repetirá en las 4 esquinas, alrededor del centro del recinto');
 }
 
 // Recorre la cuadrícula de bloques a lo largo de un rayo (como en los juegos de bloques).
@@ -408,44 +612,122 @@ function inZone([x, y, z]) {
   const b = bounds();
   return x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY && z >= b.minZ && z <= b.maxZ;
 }
+function footprint(base, del) {
+  const out = [];
+  if (game.stamp) {
+    const cells = PATTERNS[game.stamp].cells;
+    const cx = Math.floor(Math.max(...cells.map((c) => c[0])) / 2), cz = Math.floor(Math.max(...cells.map((c) => c[2])) / 2);
+    for (const [x, y, z] of cells) out.push([base[0] + x - cx, base[1] + y, base[2] + z - cz]);
+    return out;
+  }
+  if (game.brush === 1) return [base];
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    if (game.brush === 3) out.push([base[0] + dx, base[1], base[2] + dz]);
+    else for (let dy = del ? -1 : 0; dy <= (del ? 1 : 2); dy++) out.push([base[0] + dx, base[1] + dy, base[2] + dz]);
+  }
+  return out;
+}
+function withMirror(cells) {
+  if (!game.mirror) return cells;
+  const seen = new Set(), out = [];
+  for (const [x, y, z] of cells)
+    for (const [a, b] of [[x, z], [-x, z], [x, -z], [-x, -z]]) {
+      const k = `${a},${y},${b}`;
+      if (!seen.has(k)) { seen.add(k); out.push([a, y, b]); }
+    }
+  return out;
+}
+function applyEdit(add, remove) {
+  const alive = getAliveKeys();
+  add = add.filter((c) => inZone(c) && !alive.has(key(...c)));
+  remove = remove.filter((c) => alive.has(key(...c)));
+  if (!add.length && !remove.length) return false;
+  for (const c of add) alive.add(key(...c));
+  for (const c of remove) alive.delete(key(...c));
+  worker.postMessage({ type: 'edit', add, remove });
+  waiting = true;
+  return { add, remove };
+}
 function editAt(clientX, clientY, tool) {
   const hit = aim(clientX, clientY);
   if (!hit) return;
-  if (tool === 'del') {
-    if (!hit.cell) return;
-    getAliveKeys().delete(key(...hit.cell));
-    worker.postMessage({ type: 'edit', remove: [hit.cell] });
-  } else {
-    if (!inZone(hit.place)) { toast('Fuera del recinto: dibuja dentro de las líneas blancas'); return; }
-    getAliveKeys().add(key(...hit.place));
-    worker.postMessage({ type: 'edit', add: [hit.place] });
+  const del = tool === 'del' && !game.stamp;
+  const base = del ? hit.cell : hit.place;
+  if (!base) return;
+  if (!del && !inZone(base)) { toast('Fuera del recinto: dibuja dentro de las líneas blancas'); return; }
+  const cells = withMirror(footprint(base, del));
+  const done = del ? applyEdit([], cells) : applyEdit(cells, []);
+  if (done) {
+    game.undo.push(done);
+    if (game.undo.length > 60) game.undo.shift();
   }
-  waiting = true;
+  if (game.stamp) { toast(`${PATTERNS[game.stamp].name} colocado`); game.stamp = null; }
+}
+function undo() {
+  const u = game.undo.pop();
+  if (!u) { toast('Nada que deshacer'); return; }
+  applyEdit(u.remove, u.add);
 }
 function updateGhost() {
   ghost.visible = false;
   if (game.phase !== 'edit' || isTouch || !playing()) return;
-  const hit = aim();
+  const locked = document.pointerLockElement === canvas;
+  if (!locked && lastMouse.x === undefined) return;
+  const hit = locked ? aim() : aim(lastMouse.x, lastMouse.y);
   if (!hit) return;
-  const del = game.tool === 'del';
+  const del = game.tool === 'del' && !game.stamp;
   const c = del ? hit.cell : hit.place;
   if (!c) return;
   ghost.position.set(c[0], c[1] + 0.5, c[2]);
-  ghost.material.color.set(del ? '#ff5544' : inZone(c) ? '#ffffff' : '#888888');
+  ghost.material.color.set(del ? '#ff5544' : inZone(c) ? (game.stamp ? '#ffd84a' : '#ffffff') : '#888888');
   ghost.visible = true;
 }
 
-// ---------- Movimiento en primera persona ----------
+// ---------- Movimiento: volar, andar o cine ----------
 let yaw = 0, pitch = 0;
 const keys = new Set();
 const joy = { x: 0, y: 0 };
 let flyUp = false, flyDown = false;
-function placeCamera(x, y, z, p) { camera.position.set(x, y, z); yaw = 0; pitch = p; }
+const vel = new THREE.Vector3();
+let vy = 0, grounded = false, orbitR = 30;
+function placeCamera(x, y, z, p) { camera.position.set(x, y, z); yaw = 0; pitch = p; vel.set(0, 0, 0); }
 function applyLook(dx, dy, sens) {
   yaw -= dx * sens;
   pitch = Math.max(-1.5, Math.min(1.5, pitch - dy * sens));
 }
-const fwd = new THREE.Vector3(), right = new THREE.Vector3();
+const CAMS = { fly: { icon: '🕊️', label: 'Volar' }, walk: { icon: '🚶', label: 'Andar' }, orbit: { icon: '🎬', label: 'Cine' } };
+function setCam(m, quiet) {
+  game.cam = m;
+  setBtn('btn-cam', CAMS[m].icon, CAMS[m].label, m !== 'fly');
+  $('up-label').textContent = m === 'walk' ? 'saltar' : m === 'orbit' ? 'subir' : 'subir';
+  vy = 0;
+  if (m === 'orbit') { orbitR = mass.radius * 2.2 + 14; pitch = Math.min(pitch, -0.3); }
+  if (quiet) return;
+  if (m === 'walk') toast('Andar: hay gravedad y puedes subirte a los cubos. ▲ / Espacio salta. Si nace un cubo bajo tus pies, te levanta.', 5000);
+  if (m === 'orbit') toast('Cine: la cámara gira sola alrededor de la masa. Arrastra para girarla y usa el joystick (o W/S) para acercarte.', 5000);
+  if (m === 'fly') toast('Volar: muévete libremente en el aire');
+}
+function cycleCam() { setCam({ fly: 'walk', walk: 'orbit', orbit: 'fly' }[game.cam]); }
+const camF = new THREE.Vector3();
+function lookDir(target) {
+  target.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+  return target;
+}
+function goCenter() {
+  if (game.cam === 'walk') setCam('fly', true);
+  pitch = -0.35;
+  const r = mass.radius * 1.8 + 10;
+  camera.position.copy(mass.center).addScaledVector(lookDir(camF), -r);
+  camera.position.y = Math.max(1.5, camera.position.y);
+  vel.set(0, 0, 0);
+}
+
+const EYE = 1.6;
+function solid(x, y, z) {
+  if (y < 0) return true;
+  return getAliveKeys().has(key(Math.round(x), Math.floor(y), Math.round(z)));
+}
+const fwd = new THREE.Vector3(), right = new THREE.Vector3(), want = new THREE.Vector3();
 function move(dt) {
   let f = 0, s = 0, u = 0;
   if (keys.has('KeyW') || keys.has('ArrowUp')) f += 1;
@@ -455,15 +737,61 @@ function move(dt) {
   if (keys.has('Space') || flyUp) u += 1;
   if (keys.has('ShiftLeft') || keys.has('ShiftRight') || flyDown) u -= 1;
   f += -joy.y; s += joy.x;
-  const speed = 12;
+  const sprint = keys.has('ControlLeft') || keys.has('ControlRight') || Math.hypot(joy.x, joy.y) > 0.97;
   fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
   right.set(Math.cos(yaw), 0, -Math.sin(yaw));
-  camera.position.addScaledVector(fwd, f * speed * dt);
-  camera.position.addScaledVector(right, s * speed * dt);
-  camera.position.y = Math.max(1.2, Math.min(200, camera.position.y + u * speed * dt));
+
+  if (game.cam === 'orbit') {
+    yaw += dt * 0.18;
+    orbitR = Math.max(6, Math.min(250, orbitR - f * dt * 30));
+    pitch = Math.max(-1.35, Math.min(-0.02, pitch + u * dt));
+    camF.copy(mass.center);
+    orbitTarget.lerp(camF, 1 - Math.exp(-dt * 2));
+    camera.position.copy(orbitTarget).addScaledVector(lookDir(camF), -orbitR);
+    camera.position.y = Math.max(1.2, camera.position.y);
+    return;
+  }
+
+  const speed = (game.cam === 'walk' ? 5.5 : 12) * (sprint ? 2.2 : 1);
+  want.set(0, 0, 0).addScaledVector(fwd, f).addScaledVector(right, s);
+  if (want.lengthSq() > 1) want.normalize();
+  want.multiplyScalar(speed);
+  if (game.cam === 'fly') want.y = u * speed;
+  vel.lerp(want, 1 - Math.exp(-dt * 10));
+
+  if (game.cam === 'fly') {
+    camera.position.addScaledVector(vel, dt);
+    camera.position.y = Math.max(1.2, Math.min(250, camera.position.y));
+    return;
+  }
+
+  // Andar: gravedad y choques simples con los cubos.
+  const p = camera.position;
+  let feet = p.y - EYE;
+  let guard = 0;
+  while (solid(p.x, feet + 0.05, p.z) && guard++ < 80) { feet = Math.floor(feet + 0.05) + 1; vy = Math.max(vy, 0); }
+  const tryAxis = (nx, nz) => {
+    const blockedLow = solid(nx, feet + 0.1, nz), blockedHigh = solid(nx, feet + 1.1, nz);
+    if (!blockedLow && !blockedHigh) { p.x = nx; p.z = nz; return; }
+    if (blockedLow && !blockedHigh && !solid(nx, feet + 2.1, nz) && grounded) { feet = Math.floor(feet + 0.1) + 1; p.x = nx; p.z = nz; }
+  };
+  tryAxis(p.x + vel.x * dt, p.z);
+  tryAxis(p.x, p.z + vel.z * dt);
+  vy -= 28 * dt;
+  if ((keys.has('Space') || flyUp) && grounded) vy = 9.5;
+  let nf = feet + vy * dt;
+  grounded = false;
+  if (vy <= 0 && solid(p.x, nf, p.z)) { nf = Math.floor(nf) + 1; vy = 0; grounded = true; }
+  else if (vy > 0 && solid(p.x, nf + 1.75, p.z)) { vy = 0; nf = feet; }
+  p.y = Math.max(EYE, nf + EYE);
 }
-const playing = () => game.active && $('menu').classList.contains('hidden') && $('result').classList.contains('hidden');
+const orbitTarget = new THREE.Vector3(0, 8, 0);
+
+const playing = () => game.active && $('menu').classList.contains('hidden') && $('result').classList.contains('hidden') && $('shapes').classList.contains('hidden');
 const releasePointer = () => { if (document.pointerLockElement) document.exitPointerLock(); };
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === canvas) hintOnce('esc', 'Ratón capturado para mirar. Pulsa Esc para soltarlo y usar los botones; clic en la escena para volver.');
+});
 const lockPointer = () => {
   if (isTouch || !canvas.requestPointerLock || document.pointerLockElement === canvas) return;
   try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (_) {}
@@ -476,20 +804,28 @@ window.addEventListener('keydown', (e) => {
   const c = e.code;
   if (c === 'KeyE') game.phase === 'edit' ? exitEdit() : enterEdit(false);
   else if (c === 'Enter' && game.phase === 'edit') exitEdit();
+  else if (c === 'KeyZ' && game.phase === 'edit') undo();
   else if (c === 'KeyM') openMenu();
   else if (c === 'KeyR') restart();
+  else if (c === 'KeyG') cycleCam();
+  else if (c === 'KeyT') goCenter();
+  else if (c === 'KeyC') setCut(!cutOn);
+  else if (c === 'KeyB') cycleSky();
+  else if (c === 'KeyF') photo();
   else if (game.phase === 'play') {
     if (c === 'KeyP') setPaused(!game.paused);
     else if (c === 'KeyN') stepOnce();
     else if (c === 'KeyV') cycleSpeed();
   }
-  if (c === 'Space' || c.startsWith('Arrow')) e.preventDefault();
+  if (c === 'Space' || c.startsWith('Arrow') || c === 'KeyF') e.preventDefault();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => { keys.clear(); flyUp = flyDown = false; });
 
-// Ratón
+// Ratón: fuera del modo dibujo, clic = capturar el ratón para mirar.
+// En modo dibujo con el cursor libre: clic corto pone/quita donde apunta el cursor, arrastrar mira.
 let mouseDrag = null;
+const lastMouse = { x: undefined, y: undefined };
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('pointerdown', (e) => {
   if (!playing()) return;
@@ -497,26 +833,31 @@ canvas.addEventListener('pointerdown', (e) => {
     if (document.pointerLockElement === canvas) {
       if (game.phase === 'edit') editAt(undefined, undefined, e.button === 2 ? 'del' : game.tool);
     } else {
-      lockPointer();
-      mouseDrag = { x: e.clientX, y: e.clientY };
+      if (game.phase !== 'edit') lockPointer();
+      mouseDrag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, button: e.button };
     }
   } else {
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: performance.now() });
   }
 });
 window.addEventListener('mousemove', (e) => {
+  lastMouse.x = e.clientX; lastMouse.y = e.clientY;
   if (!playing()) return;
   if (document.pointerLockElement === canvas) {
-    // Algunos navegadores mandan un salto enorme justo al capturar el ratón: lo ignoramos.
     if (Math.abs(e.movementX) < 150 && Math.abs(e.movementY) < 150) applyLook(e.movementX, e.movementY, 0.0024);
   } else if (mouseDrag && e.buttons) {
     applyLook(e.clientX - mouseDrag.x, e.clientY - mouseDrag.y, 0.005);
-    mouseDrag = { x: e.clientX, y: e.clientY };
+    mouseDrag.x = e.clientX; mouseDrag.y = e.clientY;
   }
 });
-window.addEventListener('mouseup', () => (mouseDrag = null));
+window.addEventListener('mouseup', (e) => {
+  const d = mouseDrag;
+  mouseDrag = null;
+  if (!d || !playing() || game.phase !== 'edit' || document.pointerLockElement === canvas) return;
+  if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 6) editAt(e.clientX, e.clientY, d.button === 2 ? 'del' : game.tool);
+});
 
-// Táctil: arrastrar para mirar; un toque corto en modo dibujo pone o quita un cubo.
+// Táctil
 const touches = new Map();
 canvas.addEventListener('pointermove', (e) => {
   const t = touches.get(e.pointerId);
@@ -567,6 +908,27 @@ function holdButton(el, set) {
 holdButton($('btn-up'), (v) => (flyUp = v));
 holdButton($('btn-down'), (v) => (flyDown = v));
 
+// ---------- Foto ----------
+function photo() {
+  renderer.render(scene, camera);
+  canvas.toBlob((b) => {
+    if (!b) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b);
+    a.download = `juego-de-la-vida-3d-gen-${snap ? snap.gen : 0}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    toast('📷 Foto guardada en tus descargas');
+  });
+}
+function cycleSky() {
+  settings.sky = SKY_ORDER[(SKY_ORDER.indexOf(settings.sky) + 1) % SKY_ORDER.length];
+  saveSettings();
+  applySky();
+}
+
 // ---------- Avisos ----------
 let toastTimer = 0;
 function toast(msg, ms = 3500) {
@@ -603,6 +965,7 @@ function openMenu() {
   $('crosshair').classList.add('hidden');
   $('resume').classList.toggle('hidden', !game.active);
   $('play').textContent = game.active ? '▶ Empezar partida nueva' : '▶ Empezar partida';
+  renderGoals();
   $('menu').scrollTop = 0;
 }
 
@@ -673,17 +1036,17 @@ function setSeg(id, v) {
   for (const b of $(id).querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === v);
   renderSummary();
 }
-const START_NAMES = { random: 'empieza al azar', draw: 'lo dibujas tú', one: 'empieza con un solo cubo' };
+const START_NAMES = { random: 'empieza al azar', draw: 'lo dibujas tú', one: 'empieza con un solo cubo', glider: 'empieza con un planeador (solo viaja con las reglas de Bays)' };
 const ZONE_NAMES = { s: 'recinto pequeño', m: 'recinto mediano', l: 'recinto enorme' };
 const COLOR_NAMES = { fate: 'futuro', age: 'edad', nbr: 'vecinas', height: 'altura' };
 function renderSummary() {
   const el = $('summary');
   if (!el) return;
   const p = PRESETS[settings.preset];
-  el.innerHTML = `<b>Tu partida:</b> reglas ${p ? '«' + p.name + '»' : 'personalizadas'} · ${START_NAMES[settings.start]} · ${ZONE_NAMES[settings.zone]} · colores: ${COLOR_NAMES[settings.color]}`;
+  el.innerHTML = `<b>Tu partida:</b> reglas ${p ? '«' + p.name + '»' : 'personalizadas'} · ${START_NAMES[settings.start]} · ${ZONE_NAMES[settings.zone]} · colores: ${COLOR_NAMES[settings.color]} · ${SKIES[settings.sky].label.toLowerCase()}`;
 }
 function bindSeg(id, onPick) {
-  for (const b of $(id).querySelectorAll('button')) b.addEventListener('click', () => { setSeg(id, b.dataset.v); onPick(b.dataset.v); saveSettings(); });
+  for (const b of $(id).querySelectorAll('button')) b.addEventListener('click', () => { onPick(b.dataset.v); setSeg(id, b.dataset.v); saveSettings(); });
 }
 bindSeg('rule-type', (v) => {
   if (v === settings.rule.type) return;
@@ -691,9 +1054,14 @@ bindSeg('rule-type', (v) => {
   settings.preset = 'custom';
   renderRules();
 });
-bindSeg('start-mode', (v) => { settings.start = v; renderSummary(); });
-bindSeg('zone-size', (v) => { settings.zone = v; renderSummary(); });
-bindSeg('color-mode', (v) => { settings.color = v; renderSummary(); $('menu-legend').textContent = MENU_LEGENDS[v]; });
+bindSeg('start-mode', (v) => (settings.start = v));
+bindSeg('zone-size', (v) => (settings.zone = v));
+bindSeg('color-mode', (v) => { settings.color = v; $('menu-legend').textContent = MENU_LEGENDS[v]; });
+bindSeg('sky-mode', (v) => { settings.sky = v; applySky(); });
+bindSeg('tabs', (v) => {
+  $('tab-free').classList.toggle('hidden', v !== 'free');
+  $('tab-goals').classList.toggle('hidden', v !== 'goals');
+});
 for (const id of ['b-need', 's-need']) {
   $(id).addEventListener('change', () => {
     settings.rule.bNeed = +$('b-need').value;
@@ -703,16 +1071,45 @@ for (const id of ['b-need', 's-need']) {
     renderRules();
   });
 }
+function renderGoals() {
+  const done = doneGoals();
+  const box = $('goal-list');
+  box.innerHTML = '';
+  GOALS.forEach((g, i) => {
+    const b = document.createElement('button');
+    b.className = 'goal-card' + (done[g.id] ? ' done' : '');
+    b.innerHTML = `<span class="st">${done[g.id] ? '⭐' : '☆'}</span><b>${i + 1}. ${g.name}</b><small>${g.text}</small><small>Reglas: ${PRESETS[g.preset].name} · máximo ${g.max} cubos al empezar</small>`;
+    b.onclick = () => startGame(g);
+    box.appendChild(b);
+  });
+  $('stars-count').textContent = `${Object.keys(done).length}/${GOALS.length} ⭐`;
+}
+// Figuras
+const shapeList = $('shape-list');
+for (const [k, p] of Object.entries(PATTERNS)) {
+  const b = document.createElement('button');
+  b.innerHTML = `${p.name}<small>${p.note}</small>`;
+  b.onclick = () => {
+    game.stamp = k;
+    $('shapes').classList.add('hidden');
+    toast(isTouch ? `Toca donde quieras colocar: ${p.name}` : `Haz clic donde quieras colocar: ${p.name}`, 4000);
+    lockPointer();
+  };
+  shapeList.appendChild(b);
+}
+
 setSeg('start-mode', settings.start);
 setSeg('zone-size', settings.zone);
 setSeg('color-mode', settings.color);
 $('menu-legend').textContent = MENU_LEGENDS[settings.color];
 renderRules();
+renderGoals();
+applySky();
 
-$('play').addEventListener('click', startGame);
+$('play').addEventListener('click', () => startGame(null));
 $('resume').addEventListener('click', () => {
   showGame();
-  send({ type: 'refresh' }); // por si han cambiado los colores
+  send({ type: 'refresh' });
   if (game.phase === 'play' && !game.ended) setPaused(false);
 });
 const tap = (id, fn) => $(id).addEventListener('click', (e) => { e.stopPropagation(); fn(); e.currentTarget.blur(); });
@@ -723,9 +1120,23 @@ tap('btn-draw', () => enterEdit(false));
 tap('btn-reset', restart);
 tap('btn-menu', openMenu);
 tap('btn-tool', () => setTool(game.tool === 'add' ? 'del' : 'add'));
-tap('btn-rand', () => { setWorld(seedCells('random')); });
-tap('btn-clear', () => { setWorld([]); });
+tap('btn-brush', cycleBrush);
+tap('btn-mirror', toggleMirror);
+tap('btn-shapes', () => { releasePointer(); $('shapes').classList.remove('hidden'); });
+tap('shapes-close', () => { $('shapes').classList.add('hidden'); lockPointer(); });
+tap('btn-undo', undo);
+tap('btn-rand', () => {
+  if (game.goal) { toast('En los retos tienes que dibujarlo tú'); return; }
+  setWorld(seedCells('random'));
+});
+tap('btn-clear', () => setWorld([]));
 tap('btn-done', exitEdit);
+tap('btn-cam', cycleCam);
+tap('btn-center', goCenter);
+tap('btn-cut', () => setCut(!cutOn));
+tap('btn-sky', cycleSky);
+tap('btn-photo', photo);
+tap('btn-sound', toggleSound);
 tap('res-retry', () => { restart(); lockPointer(); });
 tap('res-edit', () => { closeResult(); setWorld(game.initial); enterEdit(false); lockPointer(); });
 tap('res-watch', () => { closeResult(); setPaused(false); lockPointer(); });
@@ -744,31 +1155,41 @@ resize();
 // De fondo en el menú: una demostración girando despacio.
 buildCubes();
 buildZoneBox();
-send({ type: 'set', cells: seedCells('random'), gen: 0, rule: plainRule(PRESETS.hervidero.rule) });
+const DEMO_RULE = plainRule(PRESETS.hervidero.rule);
+send({ type: 'set', cells: seedCells('random'), gen: 0, rule: DEMO_RULE });
 const clock = new THREE.Clock();
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
+  const now = performance.now();
   if (playing()) {
     move(dt);
+    const interval = SPEEDS[game.speedIdx].ms;
     if (game.phase === 'play' && !game.paused) {
       game.timer += dt * 1000;
-      if (game.timer >= SPEEDS[game.speedIdx].ms && !waiting) { game.timer = 0; send({ type: 'step' }); }
-    }
+      if (game.timer >= interval && !waiting) { game.timer = 0; send({ type: 'step' }); }
+      anim.uProg.value = Math.min(1, (now - snapTime) / Math.max(interval, 60));
+    } else anim.uProg.value = Math.min(0.55, (now - snapTime) / 300);
     updateGhost();
   } else if (!game.active) {
     game.timer += dt * 1000;
     if (game.timer >= 450 && !waiting) {
       game.timer = 0;
-      if (snap && (snap.gen > 90 || snap.n === 0)) send({ type: 'set', cells: seedCells('random'), gen: 0, rule: plainRule(PRESETS.hervidero.rule) });
-      else worker.postMessage({ type: 'step', rule: plainRule(PRESETS.hervidero.rule), bounds: bounds() }), (waiting = true);
+      if (snap && (snap.gen > 90 || snap.n === 0)) send({ type: 'set', cells: seedCells('random'), gen: 0, rule: DEMO_RULE });
+      else send({ type: 'step', rule: DEMO_RULE });
     }
+    anim.uProg.value = Math.min(1, (now - snapTime) / 450);
     const t = clock.elapsedTime * 0.1, r = zone().seed + 30;
     camera.position.set(Math.sin(t) * r, 16, Math.cos(t) * r);
     yaw = t; pitch = -0.2;
   }
   camera.rotation.set(pitch, yaw, 0);
+  if (cutOn) {
+    camF.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+    cutPlane.setFromNormalAndCoplanarPoint(camF, mass.center);
+  }
   floor.position.set(Math.round(camera.position.x), 0, Math.round(camera.position.z));
   sky.position.copy(camera.position);
+  stars.position.copy(camera.position);
   updateClouds(dt);
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
@@ -776,4 +1197,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Para las pruebas automáticas.
-window.__game = { game, get snap() { return snap; }, editAt, aim, settings, enterEdit, exitEdit, camera, setLook: (y, p) => { yaw = y; pitch = p; } };
+window.__game = { game, get snap() { return snap; }, editAt, aim, settings, startGame, GOALS, setCam, setCut, applySky, camera, setLook: (y, p) => { yaw = y; pitch = p; } };

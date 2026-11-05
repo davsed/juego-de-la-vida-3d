@@ -130,3 +130,27 @@ body:not(.touch) .mobile { display: none; }
 .big-seg button.on::before { content: none; }
 .big-seg button.on i::after { content: " ✓"; font-size: .7em; }
 #summary { margin: .9em 0 0; padding: .5em .6em; background: rgba(95,191,63,.18); border-left: 4px solid var(--accent); line-height: 1.35; font-size: .92em; }
+
+/* ---------- v4 ---------- */
+.bar.small { margin-top: 5px; }
+.bar.small button { height: calc(var(--btn) * .72); flex-basis: calc(var(--btn) * .95); }
+.bar.small button i { font-size: calc(var(--btn) * .27); }
+.bar.small button span { font-size: calc(var(--btn) * .15); }
+.bar button.active { background: rgba(230, 170, 40, .92); }
+#hud:not(.editing) .edit-only { display: none; }
+#chart { width: 12em; height: 2.2em; background: rgba(0,0,0,.4); border-radius: 4px; }
+#goal { background: rgba(255, 216, 74, .92); color: #1d1600; padding: .3em .7em; border-radius: 4px; font-weight: bold; max-width: 94vw; text-align: center; border: 2px solid #000; line-height: 1.25; }
+.tabs { display: flex; gap: .4em; margin: .6em 0 .2em; }
+.tabs button { flex: 1; padding: .6em .3em; font-size: 1.05em; font-weight: bold; background: #3a3f52; border: 3px solid #000; border-radius: 4px; }
+.tabs button.on { background: #ffd84a; color: #1d1600; }
+.tabs small { font-size: .8em; }
+#goal-list { display: grid; gap: .45em; margin-top: .5em; }
+.goal-card { text-align: left; padding: .6em .7em; background: #3a3f52; border: 3px solid #000; border-radius: 4px; line-height: 1.3; }
+.goal-card b { font-size: 1.05em; }
+.goal-card .st { float: right; font-size: 1.1em; }
+.goal-card small { display: block; opacity: .85; margin-top: .2em; }
+.goal-card.done { background: #2f5a2a; }
+.mid.wide { width: 100%; margin-top: .7em; }
+#sky-mode { margin-top: .5em; }
+#shape-list { text-align: left; }
+#shape-list button { text-align: center; }

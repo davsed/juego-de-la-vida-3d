@@ -89,3 +89,19 @@ test('la huella detecta un estado repetido', () => {
   assert.equal(stateHash(a), stateHash(b));
   assert.notEqual(stateHash(a), stateHash(new Set([key(0, 0, 0)])));
 });
+
+test('el planeador de Bays se desplaza 1 bloque en diagonal cada 4 generaciones', async () => {
+  const { PATTERNS } = await import('../js/life.js');
+  let a = new Set(PATTERNS.planeador.cells.map(([x, y, z]) => key(x, y + 5, z)));
+  for (let g = 0; g < 8; g++) a = step(a, RULES.bays);
+  const moved = new Set(PATTERNS.planeador.cells.map(([x, y, z]) => key(x + 2, y + 5, z + 2)));
+  assert.equal(a.size, moved.size);
+  for (const k of moved) assert.ok(a.has(k));
+});
+
+test('el bloque 2×2×2 se queda quieto con el clásico en 3 planos', async () => {
+  const { PATTERNS } = await import('../js/life.js');
+  const a = new Set(PATTERNS.bloque.cells.map((c) => key(...c)));
+  const b = step(a, RULES.planos);
+  assert.equal(stateHash(a), stateHash(b));
+});

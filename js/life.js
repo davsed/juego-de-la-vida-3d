@@ -142,3 +142,45 @@ export function randomSoup({ cx = 0, cy = 0, cz = 0, size = 10, density = 0.3, r
         if (random() < density) alive.add(key(cx + x, cy + y, cz + z));
   return alive;
 }
+
+// ---------- Figuras para colocar de golpe ----------
+function box(w, h, d) {
+  const out = [];
+  for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) for (let z = 0; z < d; z++) out.push([x, y, z]);
+  return out;
+}
+function shell(r) {
+  const out = [];
+  for (let x = -r; x <= r; x++) for (let y = -r; y <= r; y++) for (let z = -r; z <= r; z++) {
+    const d = Math.sqrt(x * x + y * y + z * z);
+    if (d <= r + 0.5 && d > r - 0.5) out.push([x + r, y + r, z + r]);
+  }
+  return out;
+}
+function ring(r) {
+  const out = new Set();
+  for (let a = 0; a < 360; a += 3) out.add(`${Math.round(r + r * Math.cos((a * Math.PI) / 180))},0,${Math.round(r + r * Math.sin((a * Math.PI) / 180))}`);
+  return [...out].map((s) => s.split(',').map(Number));
+}
+function pyramid(n) {
+  const out = [];
+  for (let y = 0; y < n; y++) for (let x = y; x < 2 * n - 1 - y; x++) for (let z = y; z < 2 * n - 1 - y; z++) out.push([x, y, z]);
+  return out;
+}
+function cross(r) {
+  const out = [[r, r, r]];
+  for (let i = 1; i <= r; i++) out.push([r + i, r, r], [r - i, r, r], [r, r + i, r], [r, r - i, r], [r, r, r + i], [r, r, r - i]);
+  return out;
+}
+
+// Coordenadas relativas (x, y, z) con y hacia arriba; la figura se apoya en y = 0.
+export const PATTERNS = {
+  planeador: { name: 'Planeador', note: 'Reglas de Bays: avanza 1 bloque en diagonal cada 4 generaciones',
+    cells: [[0, 1, 1], [1, 0, 0], [1, 0, 1], [0, 2, 1], [2, 1, 0], [2, 1, 1], [2, 2, 0], [2, 2, 1], [1, 3, 0], [1, 3, 1]] },
+  bloque: { name: 'Bloque 2×2×2', note: 'Se queda quieto en «Clásico en 3 planos»', cells: box(2, 2, 2) },
+  cubo: { name: 'Cubo 3×3×3', note: 'Macizo: estalla con casi todas las reglas', cells: box(3, 3, 3) },
+  cruz: { name: 'Cruz 3D', note: 'Tres barras cruzadas', cells: cross(2) },
+  anillo: { name: 'Anillo', note: 'Un aro plano de radio 4', cells: ring(4) },
+  esfera: { name: 'Esfera hueca', note: 'Una burbuja de radio 3', cells: shell(3) },
+  piramide: { name: 'Pirámide', note: 'Base de 7×7', cells: pyramid(4) },
+};
