@@ -13,58 +13,131 @@
 <body>
   <canvas id="scene"></canvas>
 
-  <!-- Indicadores durante el juego -->
+  <!-- ===== Durante la partida ===== -->
   <div id="hud" class="hidden">
-    <div class="stats"><span id="gen">Gen 0</span> · <span id="count">0 cubos</span></div>
-    <div class="toolbar">
-      <button id="btn-pause" title="Pausa (P)">⏸</button>
-      <button id="btn-step" title="Una generación (N)">⏭</button>
-      <button id="btn-speed" title="Velocidad (V)">1×</button>
-      <button id="btn-reset" title="Reiniciar (R)">↺</button>
-      <button id="btn-menu" title="Instrucciones (M)">☰</button>
+    <div id="playbar" class="bar">
+      <button id="btn-pause"><i>⏸</i><span>Pausa</span></button>
+      <button id="btn-step"><i>⏭</i><span>Paso</span></button>
+      <button id="btn-speed"><i>⏩</i><span>1×</span></button>
+      <button id="btn-draw"><i>✏️</i><span>Dibujar</span></button>
+      <button id="btn-reset"><i>↺</i><span>Reiniciar</span></button>
+      <button id="btn-menu"><i>☰</i><span>Menú</span></button>
+    </div>
+    <div id="editbar" class="bar hidden">
+      <button id="btn-tool" class="tool-add"><i>➕</i><span>Poner</span></button>
+      <button id="btn-rand"><i>🎲</i><span>Azar</span></button>
+      <button id="btn-clear"><i>🗑</i><span>Vaciar</span></button>
+      <button id="btn-done" class="go"><i>▶</i><span>¡Listo!</span></button>
+    </div>
+    <div id="info">
+      <div id="stats"><b id="gen">Gen 0</b> · <span id="count">0 cubos</span> · <span id="best">máx 0</span></div>
+      <div id="legend"></div>
     </div>
   </div>
-  <div id="crosshair" class="hidden">+</div>
-  <div id="paused-tag" class="hidden">EN PAUSA</div>
+  <div id="crosshair" class="hidden"></div>
+  <div id="toast" class="hidden"></div>
 
-  <!-- Controles táctiles -->
   <div id="touch" class="hidden">
-    <div id="joystick"><div id="stick"></div></div>
+    <div id="joystick"><div id="stick"></div><span>andar</span></div>
     <div id="updown">
-      <button id="btn-up">▲</button>
-      <button id="btn-down">▼</button>
+      <button id="btn-up">▲<span>subir</span></button>
+      <button id="btn-down">▼<span>bajar</span></button>
     </div>
   </div>
 
-  <!-- Pantalla de inicio -->
+  <!-- ===== Menú / preparar partida ===== -->
   <div id="menu">
     <div class="panel">
-      <h1>Juego de la vida <span>3D</span></h1>
-      <p class="lead">Cada cubo es una célula. Mira a sus <b>26 vecinas</b> (las que la rodean en el espacio) y, según cuántas estén vivas, vive o muere en la siguiente generación.</p>
+      <h1>Juego de la vida <em>3D</em></h1>
+      <p class="lead">Cada cubo es una célula que mira a sus <b>26 vecinas</b>. Según cuántas estén vivas, sigue viva, muere o nace una nueva. Prepara tu partida y mira cómo evoluciona a tu alrededor.</p>
 
-      <table>
-        <tr><th colspan="2">Reglas</th></tr>
-        <tr><td>Sobrevive</td><td>si tiene <b id="r-s">5, 6 o 7</b> vecinas vivas</td></tr>
-        <tr><td>Nace</td><td>donde hay exactamente <b id="r-b">5</b> vecinas vivas</td></tr>
-        <tr><td>Muere</td><td>en cualquier otro caso (soledad o agobio)</td></tr>
-        <tr><td>Zona</td><td>las células nacen dentro del recuadro de líneas blancas</td></tr>
-      </table>
+      <button id="resume" class="big alt hidden">▶ Volver a la partida</button>
 
-      <label class="rule-pick">Reglas:
-        <select id="rule">
-          <option value="hervidero">Hervidero (5-7 / 5) · recomendada</option>
-          <option value="bays">Clásica de Bays (4-5 / 5) · se calma pronto</option>
-        </select>
-      </label>
+      <section>
+        <h2><b>1</b> Elige las reglas</h2>
+        <div id="presets" class="cards"></div>
+        <p id="rule-desc" class="desc"></p>
+        <div id="rule-detail">
+          <div class="seg" id="rule-type">
+            <button data-v="total">26 vecinas</button>
+            <button data-v="planes">3 planos (clásico)</button>
+          </div>
+          <div class="chips-label">Sigue viva con <small>(toca para cambiar)</small></div>
+          <div class="chips" id="chips-s"></div>
+          <div class="chips-label">Nace con</div>
+          <div class="chips" id="chips-b"></div>
+          <div id="plane-opts">
+            <label>Nace si lo consigue en
+              <select id="b-need"><option value="1">al menos 1 plano</option><option value="2">al menos 2 planos</option><option value="3">los 3 planos</option></select>
+            </label>
+            <label>Sigue viva si lo consigue en
+              <select id="s-need"><option value="1">al menos 1 plano</option><option value="2">al menos 2 planos</option><option value="3">los 3 planos</option></select>
+            </label>
+          </div>
+        </div>
+      </section>
 
-      <table>
-        <tr><th colspan="2">Controles</th></tr>
-        <tr class="pc"><td>Ordenador</td><td><b>WASD</b> andar · <b>ratón</b> mirar (haz clic) · <b>Espacio</b>/<b>Mayús</b> subir/bajar · <b>P</b> pausa · <b>R</b> reiniciar</td></tr>
-        <tr class="mobile"><td>Móvil</td><td><b>joystick</b> (abajo a la izquierda) andar · <b>arrastra</b> el dedo para mirar · <b>▲ ▼</b> subir/bajar</td></tr>
-        <tr><td>Botones</td><td>⏸ pausa · ⏭ un paso · 1× velocidad · ↺ reiniciar · ☰ este menú</td></tr>
-      </table>
+      <section>
+        <h2><b>2</b> ¿Cómo empieza?</h2>
+        <div class="seg big-seg" id="start-mode">
+          <button data-v="random"><i>🎲</i>Al azar</button>
+          <button data-v="draw"><i>✏️</i>Lo dibujo yo</button>
+          <button data-v="one"><i>🧊</i>Un solo cubo</button>
+        </div>
+      </section>
 
-      <button id="play">▶ Play</button>
+      <section>
+        <h2><b>3</b> Tamaño del recinto</h2>
+        <div class="seg" id="zone-size">
+          <button data-v="s">Pequeño<small>41×41</small></button>
+          <button data-v="m">Mediano<small>81×81</small></button>
+          <button data-v="l">Enorme<small>121×121</small></button>
+        </div>
+      </section>
+
+      <section>
+        <h2><b>4</b> ¿Qué indican los colores?</h2>
+        <div class="seg" id="color-mode">
+          <button data-v="fate">Futuro</button>
+          <button data-v="age">Edad</button>
+          <button data-v="nbr">Vecinas</button>
+          <button data-v="height">Altura</button>
+        </div>
+        <div id="menu-legend" class="desc"></div>
+      </section>
+
+      <button id="play" class="big">▶ Empezar partida</button>
+
+      <details>
+        <summary>¿Cómo se juega?</summary>
+        <table>
+          <tr class="mobile"><td>Andar</td><td>joystick de abajo a la izquierda</td></tr>
+          <tr class="mobile"><td>Mirar</td><td>arrastra el dedo por la pantalla</td></tr>
+          <tr class="mobile"><td>Subir / bajar</td><td>botones ▲ ▼ de la derecha</td></tr>
+          <tr class="mobile"><td>Dibujar</td><td>pulsa ✏️ y toca el suelo o un cubo para poner otro encima; cambia a «Quitar» para borrar</td></tr>
+          <tr class="pc"><td>Andar / mirar</td><td><b>WASD</b> y ratón (haz clic en la escena; <b>Esc</b> suelta el ratón)</td></tr>
+          <tr class="pc"><td>Subir / bajar</td><td><b>Espacio</b> / <b>Mayús</b></td></tr>
+          <tr class="pc"><td>Dibujar</td><td><b>E</b> o ✏️; clic izquierdo pone, clic derecho quita</td></tr>
+          <tr class="pc"><td>Atajos</td><td><b>P</b> pausa · <b>N</b> paso · <b>V</b> velocidad · <b>R</b> reiniciar · <b>M</b> menú</td></tr>
+          <tr><td>Reiniciar</td><td>vuelve a la generación 0, a tu dibujo inicial</td></tr>
+          <tr><td>Reto</td><td>con reglas que se apagan (como la de Bays), dibuja un inicio que aguante el máximo de generaciones antes de morir o quedarse quieto. Se guarda tu récord.</td></tr>
+        </table>
+      </details>
+    </div>
+  </div>
+
+  <!-- ===== Fin de partida ===== -->
+  <div id="result" class="modal hidden">
+    <div class="panel small">
+      <h2 id="res-title">Fin</h2>
+      <p id="res-text"></p>
+      <p id="res-record" class="record"></p>
+      <button id="res-retry" class="big">↺ Repetir desde el inicio</button>
+      <button id="res-edit" class="big alt">✏️ Retocar el dibujo inicial</button>
+      <div class="row">
+        <button id="res-watch" class="mid">👀 Seguir mirando</button>
+        <button id="res-menu" class="mid">☰ Nueva partida</button>
+      </div>
     </div>
   </div>
 

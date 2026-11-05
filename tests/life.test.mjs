@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { key, unkey, step, makeRule, RULES, countNeighbors, randomSoup, rng, inBounds, NEIGHBOR_COUNT } from '../js/life.js';
+import { stateHash, key, unkey, step, makeRule, RULES, PRESETS, countNeighbors, randomSoup, rng, inBounds, NEIGHBOR_COUNT } from '../js/life.js';
 
 test('key y unkey son inversas, también con negativos', () => {
   for (const c of [[0, 0, 0], [-1, 2, -3], [500, -700, 65535], [-65536, 0, 12]]) {
@@ -53,4 +53,39 @@ test('la regla hervidero no se apaga ni se desborda dentro de la zona', () => {
   for (let g = 0; g < 120; g++) a = step(a, RULES.hervidero, b);
   assert.ok(a.size > 2000, `vivas: ${a.size}`);
   assert.ok(a.size <= 41 * 41 * 30);
+});
+
+test('regla por planos: un parpadeador del clásico funciona en el plano horizontal', () => {
+  // Tres en fila: si basta con un plano, se comporta como el 2D clásico.
+  const r = makeRule([2, 3], [3], { type: 'planes', bNeed: 1, sNeed: 1 });
+  const alive = new Set([key(-1, 0, 0), key(0, 0, 0), key(1, 0, 0)]);
+  const next = step(alive, r);
+  // En XZ gira a vertical (z). En el plano XY también gira (y), así que aparecen las dos.
+  assert.ok(next.has(key(0, 0, -1)) && next.has(key(0, 0, 1)));
+  assert.ok(next.has(key(0, 0, 0)));
+  assert.ok(!next.has(key(1, 0, 0)));
+});
+
+test('regla por planos: con sNeed 3 una celda necesita ganar en los 3 planos', () => {
+  const r = makeRule([2, 3], [3], { type: 'planes', bNeed: 1, sNeed: 3 });
+  const alive = new Set([key(-1, 0, 0), key(0, 0, 0), key(1, 0, 0)]);
+  // La central solo tiene vecinas en XY y XZ (2 cada uno) pero 0 en YZ: muere.
+  assert.ok(!step(alive, r).has(key(0, 0, 0)));
+});
+
+test('una regla que sobrevive con 0 vecinas mantiene celdas aisladas', () => {
+  const r = makeRule([0], []);
+  const alive = new Set([key(5, 5, 5)]);
+  assert.ok(step(alive, r).has(key(5, 5, 5)));
+});
+
+test('todas las reglas con nombre tienen descripción', () => {
+  for (const [k, p] of Object.entries(PRESETS)) assert.ok(p.name && p.desc && p.rule, k);
+});
+
+test('la huella detecta un estado repetido', () => {
+  const a = new Set([key(0, 0, 0), key(1, 2, 3)]);
+  const b = new Set([key(1, 2, 3), key(0, 0, 0)]);
+  assert.equal(stateHash(a), stateHash(b));
+  assert.notEqual(stateHash(a), stateHash(new Set([key(0, 0, 0)])));
 });

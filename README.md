@@ -4,25 +4,19 @@ Versión en tres dimensiones del juego de la vida, en primera persona y con est�
 
 **Jugar:** https://davsed.github.io/juego-de-la-vida-3d/
 
-## Reglas
+## Cómo se juega
 
-Cada cubo mira a sus 26 vecinas (las que lo rodean en el espacio):
+1. **Elige las reglas**: Hervidero, Clásico en 3 planos, Clásica de Bays, Cristal, Lava o una personalizada (marcas con cuántas vecinas se sobrevive y se nace).
+2. **Elige cómo empieza**: al azar, dibujándolo tú o con un solo cubo.
+3. **Elige el tamaño del recinto** (41, 81 o 121 bloques de lado) y **qué indican los colores** (futuro, edad, vecinas o altura; siempre con leyenda).
 
-- **Sobrevive** con 5, 6 o 7 vecinas vivas.
-- **Nace** donde hay exactamente 5 vecinas vivas.
-- **Muere** en cualquier otro caso.
-
-Las células solo nacen dentro de la zona de vida (41 × 41 de planta y 30 de alto), marcada con líneas blancas; el suelo es infinito. También se puede elegir la regla clásica de Carter Bays (4-5 / 5).
+Durante la partida: pausa, paso a paso, velocidad (1× a 8×), dibujar (poner y quitar cubos), reiniciar (vuelve a tu dibujo inicial) y menú. Si todo muere o se queda quieto, aparece el resultado y se guarda tu récord de generaciones para esas reglas.
 
 ## Controles
 
-- **Ordenador:** WASD para andar, ratón para mirar (clic en la escena), Espacio/Mayús para subir/bajar, P pausa, N un paso, V velocidad, R reiniciar, M menú.
-- **Móvil:** joystick abajo a la izquierda para andar, arrastrar el dedo para mirar, botones ▲ ▼ para subir/bajar.
+- **Ordenador:** WASD andar, ratón mirar (clic en la escena), Espacio/Mayús subir/bajar, E dibujar (clic izquierdo pone, derecho quita), P pausa, N paso, V velocidad, R reiniciar, M menú.
+- **Móvil:** joystick para andar, arrastrar para mirar, ▲ ▼ subir/bajar; en modo dibujo, toca el suelo o un cubo.
 
 ## Desarrollo
 
-Página estática sin compilación: `index.html`, `css/`, `js/` y three.js desde un CDN. La lógica de las reglas está en `js/life.js` y se prueba con:
-
-```
-npm test
-```
+Página estática sin compilación: `index.html`, `css/`, `js/` y three.js desde un CDN. Las reglas están en `js/life.js` (con tests: `npm test`) y se calculan en segundo plano en `js/worker.js`.
