@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#7ec0ee">
   <title>Juego de la vida 3D</title>
-  <link rel="stylesheet" href="css/style.css?v=4">
+  <link rel="stylesheet" href="css/style.css?v=5">
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
   </script>
@@ -17,6 +17,7 @@
   <div id="hud" class="hidden">
     <div id="playbar" class="bar">
       <button id="btn-pause"><i>⏸</i><span>Pausa</span></button>
+      <button id="btn-back"><i>⏪</i><span>Atrás</span></button>
       <button id="btn-step"><i>⏭</i><span>Paso</span></button>
       <button id="btn-speed"><i>⏩</i><span>1×</span></button>
       <button id="btn-draw"><i>✏️</i><span>Dibujar</span></button>
@@ -38,6 +39,7 @@
       <button id="btn-sky"><i>☀️</i><span>Día</span></button>
       <button id="btn-photo"><i>📷</i><span>Foto</span></button>
       <button id="btn-sound"><i>🔇</i><span>Sonido</span></button>
+      <button id="btn-bomb" class="play-only"><i>💣</i><span>Semilla</span></button>
       <button id="btn-rand" class="edit-only"><i>🎲</i><span>Azar</span></button>
       <button id="btn-clear" class="edit-only"><i>🗑</i><span>Vaciar</span></button>
     </div>
@@ -83,6 +85,7 @@
         <div id="presets" class="cards"></div>
         <p id="rule-desc" class="desc"></p>
         <div id="rule-detail">
+          <button id="btn-discover" class="mid wide">🎰 Descubrir una regla al azar</button>
           <div class="seg" id="rule-type">
             <button data-v="total">26 vecinas</button>
             <button data-v="planes">3 planos (clásico)</button>
@@ -109,6 +112,7 @@
           <button data-v="draw"><i>✏️</i>Lo dibujo yo</button>
           <button data-v="one"><i>🧊</i>Un solo cubo</button>
           <button data-v="glider"><i>🛸</i>Planeador</button>
+          <button data-v="sym"><i>❄️</i>Simétrico</button>
         </div>
       </section>
 
@@ -153,6 +157,8 @@
           <tr class="pc"><td>Dibujar</td><td><b>E</b> o ✏️; clic izquierdo pone, clic derecho quita · <b>Z</b> deshacer</td></tr>
           <tr class="pc"><td>Atajos</td><td><b>P</b> pausa · <b>N</b> paso · <b>V</b> velocidad · <b>R</b> reiniciar · <b>M</b> menú · <b>G</b> vista · <b>T</b> ir al centro · <b>C</b> corte · <b>B</b> ambiente · <b>F</b> foto</td></tr>
           <tr><td>Vistas</td><td>🕊️ Volar libre · 🚶 Andar con gravedad sobre los cubos · 🎬 Cine: la cámara gira sola (arrastra para girarla, el joystick acerca y aleja)</td></tr>
+          <tr><td>Atrás ⏪</td><td>rebobina generaciones (hasta 40) para ver qué pasó · tecla <b>Retroceso</b></td></tr>
+          <tr><td>Semilla 💣</td><td>lanza un puñado de cubos al azar donde apuntas, en plena partida · tecla <b>X</b></td></tr>
           <tr><td>Corte</td><td>✂️ quita la mitad de delante para ver el interior de la masa</td></tr>
           <tr><td>Dibujo</td><td>pincel de 1 cubo, 9 (una losa de 3×3) o 27 (un bloque de 3×3×3) · espejo: lo que dibujas se repite en las 4 esquinas · figuras ya hechas (como el planeador, que viaja solo)</td></tr>
           <tr><td>Reiniciar</td><td>vuelve a la generación 0, a tu dibujo inicial</td></tr>
@@ -198,6 +204,6 @@
     window.addEventListener('error', function (e) { showFatal((e.message || 'error') + ' (' + (e.filename || '').split('/').pop() + ':' + (e.lineno || '') + ')'); });
     window.addEventListener('unhandledrejection', function (e) { showFatal(String(e.reason && e.reason.message || e.reason)); });
   </script>
-  <script type="module" src="js/main.js?v=4"></script>
+  <script type="module" src="js/main.js?v=5"></script>
 </body>
 </html>

@@ -154,3 +154,6 @@ body:not(.touch) .mobile { display: none; }
 #sky-mode { margin-top: .5em; }
 #shape-list { text-align: left; }
 #shape-list button { text-align: center; }
+#hud.editing .play-only { display: none; }
+#start-mode { display: grid; grid-template-columns: repeat(3, 1fr); }
+#btn-discover { margin: 0 0 .4em; background: #6a3fb0; font-weight: bold; }

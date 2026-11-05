@@ -1,5 +1,9 @@
 // Calcula las generaciones en segundo plano para que la imagen no se trabe.
-import { makeRule, step, unkey, key, countNeighbors, stateHash } from './life.js?v=4';
+import { makeRule, step, unkey, key, countNeighbors, stateHash, discoverRule } from './life.js?v=5';
+
+// Generaciones anteriores para poder rebobinar (solo si el mundo no es enorme).
+const past = [];
+const PAST_MAX = 40;
 
 let alive = new Set();
 let ages = new Map();
@@ -41,7 +45,21 @@ onmessage = (e) => {
   if (m.bounds !== undefined) bounds = m.bounds;
   if (m.wantNeighbors !== undefined) wantNeighbors = m.wantNeighbors;
 
+  if (m.type === 'discover') {
+    const r = discoverRule();
+    postMessage({ reason: 'discover', rule: r && { type: 'total', survive: r.survive, born: r.born } });
+    return;
+  }
+  if (m.type === 'back') {
+    const p = past.pop();
+    if (!p) { postMessage({ reason: 'noback' }); return; }
+    alive = p.alive; ages = p.ages; gen = p.gen;
+    recomputeNext();
+    snapshot('back');
+    return;
+  }
   if (m.type === 'set') {
+    past.length = 0;
     // Sustituye el mundo entero (inicio de partida o reinicio).
     alive = new Set(m.cells);
     ages = new Map();
@@ -51,6 +69,8 @@ onmessage = (e) => {
     for (const c of m.add || []) { const k = key(c[0], c[1], c[2]); alive.add(k); ages.set(k, 1); }
     for (const c of m.remove || []) { const k = key(c[0], c[1], c[2]); alive.delete(k); ages.delete(k); }
   } else if (m.type === 'step') {
+    if (alive.size <= 60000) { past.push({ alive, ages, gen }); if (past.length > PAST_MAX) past.shift(); }
+    else past.length = 0;
     const nextAges = new Map();
     for (const k of next) nextAges.set(k, (ages.get(k) || 0) + 1);
     alive = next;

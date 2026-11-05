@@ -184,3 +184,32 @@ export const PATTERNS = {
   esfera: { name: 'Esfera hueca', note: 'Una burbuja de radio 3', cells: shell(3) },
   piramide: { name: 'Pirámide', note: 'Base de 7×7', cells: pyramid(4) },
 };
+
+// ---------- Descubrir reglas ----------
+// Prueba reglas al azar en un recinto pequeño y devuelve una «interesante»:
+// que no se apague, que no llene el recinto y que siga cambiando.
+export function discoverRule(random = Math.random, { tries = 60, maxMs = 4000 } = {}) {
+  const b = { minX: -15, maxX: 15, minY: 0, maxY: 30, minZ: -15, maxZ: 15 };
+  const volume = 31 * 31 * 31;
+  const pick = (lo, hi) => lo + Math.floor(random() * (hi - lo + 1));
+  const t0 = Date.now();
+  for (let t = 0; t < tries && Date.now() - t0 < maxMs; t++) {
+    const s0 = pick(1, 9), s1 = s0 + pick(0, 5);
+    const b0 = pick(3, 9), b1 = b0 + pick(0, 2);
+    const survive = [], born = [];
+    for (let n = s0; n <= s1; n++) survive.push(n);
+    for (let n = b0; n <= b1; n++) born.push(n);
+    if (random() < 0.3) { const extra = pick(10, 20); if (!born.includes(extra)) born.push(extra); }
+    const rule = makeRule(survive, born);
+    let a = randomSoup({ cx: 0, cy: 15, cz: 0, size: 10, density: 0.3, random });
+    let ok = true, changes = 0;
+    for (let g = 0; g < 45; g++) {
+      const n = step(a, rule, b);
+      if (n.size === 0 || n.size > volume * 0.35) { ok = false; break; }
+      if (g === 44) { for (const k of n) if (!a.has(k)) changes++; }
+      a = n;
+    }
+    if (ok && a.size > 60 && changes > a.size * 0.04) return rule;
+  }
+  return null;
+}

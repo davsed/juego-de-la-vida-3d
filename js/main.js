@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PRESETS, PATTERNS, randomSoup, key, ruleSignature } from './life.js?v=4';
+import { PRESETS, PATTERNS, randomSoup, key, ruleSignature } from './life.js?v=5';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -276,7 +276,7 @@ function colorFor(i, s) {
 }
 
 // ---------- Simulación en segundo plano ----------
-const worker = new Worker(new URL('./worker.js?v=4', import.meta.url), { type: 'module' });
+const worker = new Worker(new URL('./worker.js?v=5', import.meta.url), { type: 'module' });
 let snap = null;
 let waiting = false;
 let snapTime = 0;
@@ -290,14 +290,18 @@ function send(msg) {
 
 worker.onmessage = (e) => {
   const m = e.data;
+  if (m.reason === 'discover') { onDiscover(m.rule); return; }
   waiting = false;
+  if (m.reason === 'noback') { toast('No hay más generaciones guardadas para rebobinar'); return; }
   snap = m;
   snapTime = performance.now();
   aliveKeys = null;
   drawSnapshot();
   if (m.reason === 'set') { game.history = [{ hash: m.hash, gen: 0 }]; game.pop = [m.n]; }
+  if (m.reason === 'back') { game.history = [{ hash: m.hash, gen: m.gen }]; game.ended = false; game.pop.pop(); }
   if (m.reason === 'step') { game.pop.push(m.n); if (game.pop.length > 240) game.pop.shift(); beep(m.n); checkEnd(); }
   drawChart();
+  if (pendingBack > 0) { pendingBack--; goBack(); }
 };
 
 function drawSnapshot() {
@@ -396,6 +400,14 @@ function seedCells(mode) {
   const z = zone();
   if (mode === 'draw') return [];
   if (mode === 'one') return [key(0, 10, 0)];
+  if (mode === 'sym') {
+    // Una semilla al azar en una esquina, repetida en espejo en las cuatro.
+    const h = Math.ceil(z.seed / 2), cy = h + 2, out = new Set();
+    const r = Math.random;
+    for (let x = 0; x < h; x++) for (let y = -h; y < h; y++) for (let zz = 0; zz < h; zz++)
+      if (r() < 0.3) for (const [a, c] of [[x, zz], [-x - 1, zz], [x, -zz - 1], [-x - 1, -zz - 1]]) out.add(key(a, cy + y, c));
+    return [...out];
+  }
   if (mode === 'glider') return PATTERNS.planeador.cells.map(([x, y, zz]) => key(x - 1, y + 1, zz - 1));
   return [...randomSoup({ cx: 0, cy: Math.ceil(z.seed / 2) + 2, cz: 0, size: z.seed, density: 0.3 })];
 }
@@ -468,6 +480,38 @@ function setPaused(v) {
 function cycleSpeed() {
   game.speedIdx = (game.speedIdx + 1) % SPEEDS.length;
   setBtn('btn-speed', '⏩', SPEEDS[game.speedIdx].label);
+}
+let pendingBack = 0;
+function goBack() {
+  setPaused(true);
+  if (waiting) { pendingBack++; return; }
+  waiting = true;
+  worker.postMessage({ type: 'back' });
+}
+function throwSeed() {
+  if (game.goal) { toast('En los retos no vale lanzar semillas 😉'); return; }
+  const hit = aim();
+  let base = hit && hit.place;
+  if (!base) {
+    lookDir(camF);
+    const p = camera.position.clone().addScaledVector(camF, 15);
+    base = [Math.round(p.x), Math.max(0, Math.floor(p.y)), Math.round(p.z)];
+  }
+  const cells = [];
+  for (let dx = -2; dx <= 2; dx++) for (let dy = 0; dy <= 4; dy++) for (let dz = -2; dz <= 2; dz++)
+    if (Math.random() < 0.38) cells.push([base[0] + dx, base[1] + dy, base[2] + dz]);
+  if (applyEdit(cells, [])) { game.history = []; toast('💣 ¡Semilla lanzada!', 1500); }
+  else toast('Apunta dentro del recinto para lanzar la semilla');
+}
+function onDiscover(rule) {
+  $('btn-discover').textContent = '🎰 Descubrir otra regla al azar';
+  $('btn-discover').disabled = false;
+  if (!rule) { toast('Esta vez no he encontrado ninguna interesante. Prueba otra vez.'); return; }
+  settings.rule = { type: 'total', survive: rule.survive, born: rule.born, bNeed: 1, sNeed: 3 };
+  settings.preset = 'custom';
+  saveSettings();
+  renderRules();
+  $('rule-desc').innerHTML = `<b>🎰 ¡Regla descubierta!</b> Probada en un recinto pequeño: ni se apaga ni lo llena todo. Sigue viva con <b>${listText(rule.survive)}</b> y nace con <b>${listText(rule.born)}</b> vecinas vivas. Pulsa «Empezar partida» para verla.`;
 }
 function stepOnce() {
   setPaused(true);
@@ -812,12 +856,14 @@ window.addEventListener('keydown', (e) => {
   else if (c === 'KeyC') setCut(!cutOn);
   else if (c === 'KeyB') cycleSky();
   else if (c === 'KeyF') photo();
+  else if (c === 'Backspace' && game.phase === 'play') goBack();
+  else if (c === 'KeyX' && game.phase === 'play') throwSeed();
   else if (game.phase === 'play') {
     if (c === 'KeyP') setPaused(!game.paused);
     else if (c === 'KeyN') stepOnce();
     else if (c === 'KeyV') cycleSpeed();
   }
-  if (c === 'Space' || c.startsWith('Arrow') || c === 'KeyF') e.preventDefault();
+  if (c === 'Space' || c.startsWith('Arrow') || c === 'KeyF' || c === 'Backspace') e.preventDefault();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => { keys.clear(); flyUp = flyDown = false; });
@@ -1036,7 +1082,7 @@ function setSeg(id, v) {
   for (const b of $(id).querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === v);
   renderSummary();
 }
-const START_NAMES = { random: 'empieza al azar', draw: 'lo dibujas tú', one: 'empieza con un solo cubo', glider: 'empieza con un planeador (solo viaja con las reglas de Bays)' };
+const START_NAMES = { sym: 'empieza al azar pero simétrico', random: 'empieza al azar', draw: 'lo dibujas tú', one: 'empieza con un solo cubo', glider: 'empieza con un planeador (solo viaja con las reglas de Bays)' };
 const ZONE_NAMES = { s: 'recinto pequeño', m: 'recinto mediano', l: 'recinto enorme' };
 const COLOR_NAMES = { fate: 'futuro', age: 'edad', nbr: 'vecinas', height: 'altura' };
 function renderSummary() {
@@ -1115,6 +1161,13 @@ $('resume').addEventListener('click', () => {
 const tap = (id, fn) => $(id).addEventListener('click', (e) => { e.stopPropagation(); fn(); e.currentTarget.blur(); });
 tap('btn-pause', () => setPaused(!game.paused));
 tap('btn-step', stepOnce);
+tap('btn-back', goBack);
+tap('btn-bomb', throwSeed);
+$('btn-discover').addEventListener('click', () => {
+  $('btn-discover').textContent = '🎰 Buscando una regla interesante…';
+  $('btn-discover').disabled = true;
+  worker.postMessage({ type: 'discover' });
+});
 tap('btn-speed', cycleSpeed);
 tap('btn-draw', () => enterEdit(false));
 tap('btn-reset', restart);

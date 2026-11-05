@@ -105,3 +105,10 @@ test('el bloque 2×2×2 se queda quieto con el clásico en 3 planos', async () =
   const b = step(a, RULES.planos);
   assert.equal(stateHash(a), stateHash(b));
 });
+
+test('descubrir reglas devuelve una regla que ni se apaga ni se desborda', async () => {
+  const { discoverRule } = await import('../js/life.js');
+  const r = discoverRule(rng(11), { tries: 200, maxMs: 30000 });
+  assert.ok(r, 'debería encontrar alguna');
+  assert.ok(r.survive.length > 0 && r.born.length > 0);
+});

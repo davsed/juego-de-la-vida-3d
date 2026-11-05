@@ -10,6 +10,7 @@ Versión en tres dimensiones del juego de la vida, en primera persona y con est�
 - **Retos**: 7 objetivos con estrellas (que algo sobreviva, que viaje, que se quede quieto, que haga bucle, que toque el techo, que llegue a 500 cubos…).
 - **Dibujar**: pincel de 1, 9 o 27 cubos, espejo en 4 esquinas, figuras ya hechas (planeador, bloque, cruz, anillo, esfera, pirámide…) y deshacer.
 - **Vistas**: volar, andar con gravedad sobre los cubos o cine (la cámara gira sola). Botón para ir al centro de la acción y corte para ver el interior.
+- **Rebobinar** (⏪ Atrás, hasta 40 generaciones), **lanzar semillas** (💣) en plena partida, **descubrir reglas** al azar (🎰) e inicio **simétrico** al azar.
 - **Extras**: animación de nacer y morir, gráfica de población, sonido opcional, foto, fin de partida con récord.
 
 ## Controles
