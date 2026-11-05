@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PRESETS, makeRule, randomSoup, key, ruleSignature } from './life.js';
+import { PRESETS, makeRule, randomSoup, key, ruleSignature } from './life.js?v=3';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -190,7 +190,7 @@ function colorFor(i, snap) {
 }
 
 // ---------- Simulación en segundo plano ----------
-const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+const worker = new Worker(new URL('./worker.js?v=3', import.meta.url), { type: 'module' });
 let snap = null;
 let waiting = false;
 let aliveKeys = null; // copia de las celdas vivas para apuntar al dibujar (se crea solo cuando hace falta)
@@ -656,6 +656,7 @@ function renderChips(id, list, max) {
 function renderRules() {
   const r = settings.rule;
   renderPresets();
+  renderSummary();
   const planes = r.type === 'planes';
   setSeg('rule-type', r.type);
   renderChips('chips-s', r.survive, planes ? 8 : 26);
@@ -670,6 +671,16 @@ function renderRules() {
 }
 function setSeg(id, v) {
   for (const b of $(id).querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === v);
+  renderSummary();
+}
+const START_NAMES = { random: 'empieza al azar', draw: 'lo dibujas tú', one: 'empieza con un solo cubo' };
+const ZONE_NAMES = { s: 'recinto pequeño', m: 'recinto mediano', l: 'recinto enorme' };
+const COLOR_NAMES = { fate: 'futuro', age: 'edad', nbr: 'vecinas', height: 'altura' };
+function renderSummary() {
+  const el = $('summary');
+  if (!el) return;
+  const p = PRESETS[settings.preset];
+  el.innerHTML = `<b>Tu partida:</b> reglas ${p ? '«' + p.name + '»' : 'personalizadas'} · ${START_NAMES[settings.start]} · ${ZONE_NAMES[settings.zone]} · colores: ${COLOR_NAMES[settings.color]}`;
 }
 function bindSeg(id, onPick) {
   for (const b of $(id).querySelectorAll('button')) b.addEventListener('click', () => { setSeg(id, b.dataset.v); onPick(b.dataset.v); saveSettings(); });
@@ -680,9 +691,9 @@ bindSeg('rule-type', (v) => {
   settings.preset = 'custom';
   renderRules();
 });
-bindSeg('start-mode', (v) => (settings.start = v));
-bindSeg('zone-size', (v) => (settings.zone = v));
-bindSeg('color-mode', (v) => { settings.color = v; $('menu-legend').textContent = MENU_LEGENDS[v]; });
+bindSeg('start-mode', (v) => { settings.start = v; renderSummary(); });
+bindSeg('zone-size', (v) => { settings.zone = v; renderSummary(); });
+bindSeg('color-mode', (v) => { settings.color = v; renderSummary(); $('menu-legend').textContent = MENU_LEGENDS[v]; });
 for (const id of ['b-need', 's-need']) {
   $(id).addEventListener('change', () => {
     settings.rule.bNeed = +$('b-need').value;

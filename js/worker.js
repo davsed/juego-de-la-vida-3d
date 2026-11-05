@@ -1,5 +1,5 @@
 // Calcula las generaciones en segundo plano para que la imagen no se trabe.
-import { makeRule, step, unkey, key, countNeighbors, stateHash } from './life.js';
+import { makeRule, step, unkey, key, countNeighbors, stateHash } from './life.js?v=3';
 
 let alive = new Set();
 let ages = new Map();
